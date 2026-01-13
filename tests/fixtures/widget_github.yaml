@@ -1,0 +1,13 @@
+# Widget: yasb.github.GithubWidget
+# Tests: nested mapping (notification_dot)
+
+label: "<span>\ueba1</span>"
+label_alt: "Notifications {data}"
+token: ghp_xxxxxxxxxxx
+max_notification: 30
+notification_dot:
+  enabled: true
+  corner: bottom_left
+  color: red
+callbacks:
+  on_left: toggle_label

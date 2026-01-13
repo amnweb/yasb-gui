@@ -1,0 +1,22 @@
+{
+	"files.exclude": {
+		"**/__pycache__": true,
+		"app/build": true,
+	},
+	"search.exclude": {
+		"**/__pycache__": true,
+		"app/build": true,
+	},
+	"files.watcherExclude": {
+		"**/__pycache__": true,
+		"app/build": true,
+	},
+	"[python]": {
+        "editor.formatOnSave": true,
+		"editor.codeActionsOnSave": {
+			"source.fixAll": "explicit",
+			"source.organizeImports": "explicit"
+		},
+		"editor.defaultFormatter": "charliermarsh.ruff"
+	}
+}

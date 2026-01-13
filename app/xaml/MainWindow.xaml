@@ -1,0 +1,101 @@
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <NavigationView
+        x:Name="NavView"
+        IsBackButtonVisible="Collapsed"
+        IsSettingsVisible="False"
+        IsTitleBarAutoPaddingEnabled="False"
+        PaneDisplayMode="Auto"
+        OpenPaneLength="180"
+        CompactPaneLength="48"
+        CompactModeThresholdWidth="480"
+        ExpandedModeThresholdWidth="1000">
+        
+        <NavigationView.Resources>
+            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent"/>
+            <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="#FF1F1F1F"/>
+            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent"/>
+        </NavigationView.Resources>
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="Global" Tag="global">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xEC6C;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Bars" Tag="bars">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xF7ED;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Widgets" Tag="widgets">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE8A9;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Styles" Tag="styles">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE790;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Environment" Tag="environment">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE943;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Content="Backup Config" Tag="backup" SelectsOnInvoked="False">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE74E;"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+        
+        <NavigationView.FooterMenuItems>
+            <NavigationViewItem Content="Settings" Tag="app_settings">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Setting"/>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.FooterMenuItems>
+        
+        <Grid x:Name="ContentGrid" Margin="0,32,0,0">
+            <!-- Loading spinner - shown during initial load -->
+            <ProgressRing x:Name="LoadingSpinner"
+                          IsActive="True" 
+                          Width="48" Height="48"
+                          HorizontalAlignment="Center" 
+                          VerticalAlignment="Center"/>
+            
+            <ContentControl x:Name="ContentArea"
+                            HorizontalContentAlignment="Stretch" 
+                            VerticalContentAlignment="Stretch"
+                            Visibility="Collapsed">
+                <ContentControl.ContentTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition FromVerticalOffset="50" IsStaggeringEnabled="False"/>
+                    </TransitionCollection>
+                </ContentControl.ContentTransitions>
+            </ContentControl>
+            
+            <!-- Floating InfoBar - overlays content at bottom -->
+            <InfoBar x:Name="UnsavedInfoBar"
+                     IsOpen="False"
+                     IsIconVisible="False"
+                     IsClosable="False"
+                     Severity="Success"
+                     Title="You have unsaved changes"
+                     Margin="12,0,12,12"
+                     CornerRadius="8"
+                     HorizontalAlignment="Stretch"
+                     VerticalAlignment="Bottom">
+                <InfoBar.ActionButton>
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button x:Name="LaterButton" Content="Later"/>
+                        <Button x:Name="SaveButton" Content="Save" Style="{StaticResource AccentButtonStyle}"/>
+                    </StackPanel>
+                </InfoBar.ActionButton>
+            </InfoBar>
+        </Grid>
+    </NavigationView>
+</Window>

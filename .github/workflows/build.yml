@@ -1,0 +1,211 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            artifact_name: yasb-gui-x64
+          - arch: arm64
+            runner: windows-11-arm
+            artifact_name: yasb-gui-aarch64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create virtual environment
+        run: python -m venv venv
+        shell: pwsh
+
+      - name: Install dependencies
+        run: |
+          .\venv\Scripts\Activate
+          pip install --upgrade pip
+          pip install .[build] --no-cache
+        shell: pwsh
+
+      - name: Build EXE
+        run: |
+          .\venv\Scripts\Activate
+          python app/scripts/build.py build
+        shell: pwsh
+
+      - name: Build MSI
+        run: |
+          .\venv\Scripts\Activate
+          python app/scripts/build.py bdist_msi
+        shell: pwsh
+
+      - name: Upload MSI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/out/*.msi
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-msis
+          pattern: yasb-gui-*
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: |
+          $content = Get-Content -Path "app/core/constants.py" -Raw
+          $version = [regex]::Match($content, 'APP_VERSION\s*=\s*"([^"]+)"').Groups[1].Value
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          $previousTag = git describe --tags --abbrev=0 2>$null
+          if (-not $previousTag) {
+            $previousTag = git rev-list --max-parents=0 HEAD
+          }
+          
+          $commits = git log "$previousTag..HEAD" --pretty=format:"%h|%s|%an" --no-merges
+          
+          $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
+          
+          $features = @()
+          $fixes = @()
+          $other = @()
+          
+          foreach ($commit in $commits -split "`n") {
+            if (-not $commit) { continue }
+            $parts = $commit -split '\|'
+            $hash = $parts[0]
+            $message = $parts[1]
+            
+            $entry = "- $message ([$hash]($repoUrl/commit/$hash))"
+            
+            if ($message -match "^feat|^add|^new") {
+              $features += $entry
+            }
+            elseif ($message -match "^fix|^bug|^patch") {
+              $fixes += $entry
+            }
+            else {
+              $other += $entry
+            }
+          }
+          
+          $changelog = ""
+          
+          if ($features.Count -gt 0) {
+            $changelog += "### ✨ Features`n`n"
+            $changelog += ($features -join "`n") + "`n`n"
+          }
+          
+          if ($fixes.Count -gt 0) {
+            $changelog += "### 🐛 Bug Fixes`n`n"
+            $changelog += ($fixes -join "`n") + "`n`n"
+          }
+          
+          if ($other.Count -gt 0) {
+            $changelog += "### 📦 Other Changes`n`n"
+            $changelog += ($other -join "`n") + "`n`n"
+          }
+          
+          if (-not $changelog) {
+            $changelog = "No significant changes in this release."
+          }
+          
+          $changelog | Out-File -FilePath "CHANGELOG_BODY.md" -Encoding utf8
+          
+          echo "Generated changelog:"
+          echo $changelog
+        shell: pwsh
+
+      - name: Generate Checksum
+        run: |
+          $checksums = Get-FileHash dist-msis/*.msi -Algorithm SHA256
+          $output = @()
+          foreach ($checksum in $checksums) {
+            $filename = [System.IO.Path]::GetFileName($checksum.Path)
+            $output += "$($checksum.Hash)  $filename"
+          }
+          $output -join "`n" | Out-File -FilePath "dist-msis/checksums.txt" -Encoding utf8
+          
+          echo "Checksums:"
+          Get-Content "dist-msis/checksums.txt"
+        shell: pwsh
+
+      - name: Create Tag
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        with:
+          script: |
+            const version = `v${process.env.VERSION}`;
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            
+            try {
+              const { data: tags } = await github.rest.repos.listTags({ owner, repo });
+              const tagExists = tags.some(tag => tag.name === version);
+              
+              if (!tagExists) {
+                console.log(`Creating tag ${version}`);
+                await github.rest.git.createRef({
+                  owner,
+                  repo,
+                  ref: `refs/tags/${version}`,
+                  sha,
+                });
+              } else {
+                console.log(`Tag ${version} already exists, skipping`);
+              }
+            } catch (error) {
+              console.error(`Error: ${error.message}`);
+              throw error;
+            }
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: 'YASB GUI v${{ steps.version.outputs.VERSION }} (Beta)'
+          body_path: CHANGELOG_BODY.md
+          draft: true
+          prerelease: false
+          files: |
+            dist-msis/*.msi
+            dist-msis/checksums.txt

@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: Schema Fetcher
+            file: test_schema_fetcher.py
+          - name: Code Editor
+            file: test_code_editor.py
+          - name: Config Manager
+            file: test_config_manager.py
+          - name: Widget Formatting
+            file: test_widgets.py
+          - name: Updater
+            file: test_updater.py
+          - name: Locales
+            file: test_locales.py
+    
+    name: ${{ matrix.test.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruamel.yaml
+
+      - name: Fetch widget schemas
+        if: matrix.test.file == 'test_widgets.py'
+        run: python tests/fetch_schemas.py
+
+      - name: Run tests
+        run: pytest tests/${{ matrix.test.file }} -v

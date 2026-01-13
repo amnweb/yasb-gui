@@ -1,0 +1,49 @@
+# Widget: yasb.ai_chat.AiChatWidget
+# Tests: nested mappings, list of mappings (providers), nested lists (models), simple value list (margin), multiple provider entries
+
+label: "AI"
+chat:
+  blur: true
+  round_corners: true
+  round_corners_type: normal
+  border_color: system
+  alignment: center
+  direction: down
+  offset_left: 0
+  offset_top: 6
+icons:
+  attach: a
+  send: s
+  stop: x
+  clear: c
+  assistant: ai
+notification_dot:
+  enabled: true
+  corner: top_right
+  color: red
+  margin:
+    - 0
+    - 2
+callbacks:
+  on_left: toggle_chat
+providers:
+  - provider: Openrouter
+    api_endpoint: https://openrouter.ai/api/v1
+    credential: test
+    models:
+      - name: google/gemma-3-27b-it:free
+        label: Gemma 3
+        instructions: test.md
+      - name: gpt-4
+        label: GPT 4
+  - provider: OpenAI
+    api_endpoint: https://api.openai.com/v1
+    credential: sk-xxx
+    models:
+      - name: gpt-3.5-turbo
+        label: GPT3.5 Turbo
+      - name: gpt-4
+        label: GPT4
+        temperature: 0.3
+        top_p: 0.95
+        max_tokens: 4096

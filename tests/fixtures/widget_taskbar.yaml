@@ -1,0 +1,29 @@
+# Widget: yasb.taskbar.TaskbarWidget
+# Tests: multiple nested mappings with same key names (enabled appears in animation, preview, title_label)
+
+icon_size: 16
+tooltip: true
+show_only_visible: false
+strict_filtering: true
+monitor_exclusive: false
+animation:
+  enabled: true
+preview:
+  enabled: false
+  width: 240
+  delay: 400
+  padding: 8
+  margin: 8
+title_label:
+  enabled: false
+  show: always
+  min_length: 10
+  max_length: 30
+ignore_apps:
+  processes: []
+  titles: []
+  classes: []
+callbacks:
+  on_left: activate_window
+  on_middle: toggle_window
+  on_right: close_window

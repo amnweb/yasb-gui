@@ -1,0 +1,22 @@
+# Widget: yasb.clock.ClockWidget
+# Tests: nested mapping with many keys (icons)
+
+label: "{%H:%M}"
+label_alt: "{%d-%m-%y}"
+update_interval: 1000
+timezones: []
+icons:
+  clock_01: icon1
+  clock_02: icon2
+  clock_03: icon3
+  clock_04: icon4
+  clock_05: icon5
+  clock_06: icon6
+  clock_07: icon7
+  clock_08: icon8
+  clock_09: icon9
+  clock_10: icon10
+  clock_11: icon11
+  clock_12: icon12
+callbacks:
+  on_left: toggle_label

@@ -1,0 +1,32 @@
+# Widget: yasb.home.HomeWidget
+# Tests: list of mappings (menu_list), nested mapping (menu_labels)
+
+label: "<span>\uDB81\uDF17</span>"
+menu_list:
+  - title: User Home
+    path: "~"
+  - title: Download
+    path: D:\Downloads
+  - title: Documents
+    path: C:\Users\amn\Documents
+  - title: Pictures
+    path: C:\Users\amn\Pictures
+  - title: Dev Drive
+    path: E:\Dev
+system_menu: true
+power_menu: true
+blur: true
+round_corners: true
+round_corners_type: normal
+border_color: System
+offset_top: 6
+offset_left: 0
+menu_labels:
+  shutdown: Shutdown
+  restart: Restart
+  logout: Logout
+  lock: Lock
+  sleep: Sleep
+  system: System Settings
+  about: About This PC
+  task_manager: Task Manager

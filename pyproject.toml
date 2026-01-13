@@ -1,0 +1,92 @@
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "YASB-GUI"
+dynamic = ["version"]
+description = "GUI application for YASB Reborn."
+authors = [
+    { name = "amnweb" },
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "ruamel.yaml",
+    "winrt.runtime",
+    "winrt.windows.ui",
+    "winrt.windows.system",
+    "winrt.windows.foundation",
+    "winrt.windows.foundation.collections",
+    "winrt.windows.applicationmodel",
+    "winrt.windows.applicationmodel.datatransfer",
+    "winrt.windows.ui.xaml.interop",
+    "webview2.microsoft.web.webview2.core",
+    "winui3.microsoft.ui.composition.systembackdrops",
+    "winui3.microsoft.ui.xaml",
+    "winui3.microsoft.ui.xaml.controls",
+    "winui3.microsoft.ui.xaml.controls.primitives",
+    "winui3.microsoft.ui.xaml.markup",
+    "winui3.microsoft.ui.xaml.media",
+    "winui3.microsoft.ui.xaml.input",
+    "winui3.microsoft.ui.windowing",
+    "winui3.microsoft.ui.dispatching",
+    "winui3.microsoft.ui.xaml.media.imaging",
+    "winui3.microsoft.ui.xaml.media.animation",
+    "winui3.microsoft.ui.xaml.xamltypeinfo",
+    "winui3.microsoft.ui.xaml.automation.peers",
+    "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap",
+]
+
+[project.optional-dependencies]
+build = [
+    "cx-freeze>=8.5.3",
+]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+path = "app/core/constants.py"
+pattern = "APP_VERSION = \"(?P<version>[^\"]+)\""
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+extend-exclude = [
+    "__pycache__",
+    ".github",
+    ".vscode",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "F405",
+    "F403",
+    "E741",
+]
+select = [
+    "I",
+    "F",
+]
+fixable = [
+    "ALL",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false

@@ -1,0 +1,31 @@
+# Widget: yasb.weather.WeatherWidget  
+# Tests: nested mappings (menu, icons)
+
+label: "<span>{icon}</span> {temp}"
+label_alt: "{location}: Min {min_temp}, Max {max_temp}"
+api_key: "your_api_key_here"
+show_alerts: true
+tooltip: true
+update_interval: 600
+hide_decimal: true
+units: metric
+menu:
+  blur: true
+  round_corners: true
+  round_corners_type: normal
+  border_color: system
+  alignment: center
+  direction: down
+  offset_top: 6
+  offset_left: 0
+icons:
+  sunnyDay: "\ue30d"
+  clearNight: "\ue32b"
+  cloudyDay: "\ue312"
+  cloudyNight: "\ue311"
+  rainyDay: "\ue318"
+  rainyNight: "\ue318"
+  snowyIcy: "\ue31a"
+  default: "\ue137"
+callbacks:
+  on_left: toggle_menu

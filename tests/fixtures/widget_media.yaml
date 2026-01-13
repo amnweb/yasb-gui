@@ -1,0 +1,60 @@
+# Widget: yasb.media.MediaWidget
+# Tests: nested mappings (max_field_size, callbacks, icons, media_menu, scrolling_label, label_shadow), inline list (offset)
+
+label: "{title}{s}{artist}"
+label_alt: "{title}"
+separator: " - "
+hide_empty: true
+callbacks:
+  on_left: toggle_label
+  on_middle: do_nothing
+  on_right: do_nothing
+max_field_size:
+  label: 20
+  label_alt: 30
+show_thumbnail: true
+controls_only: false
+controls_left: true
+controls_hide: false
+thumbnail_alpha: 80
+thumbnail_padding: 8
+thumbnail_corner_radius: 16
+icons:
+  prev_track: "\ue892"
+  next_track: "\ue893"
+  play: "\ue768"
+  pause: "\ue769"
+media_menu:
+  blur: false
+  round_corners: true
+  round_corners_type: "normal"
+  border_color: "system"
+  alignment: "right"
+  direction: "down"
+  offset_top: 6
+  offset_left: 0
+  thumbnail_corner_radius: 8
+  thumbnail_size: 120
+  max_title_size: 60
+  max_artist_size: 20
+  show_source: true
+media_menu_icons:
+  play: "\ue768"
+  pause: "\ue769"
+  prev_track: "\ue892"
+  next_track: "\ue893"
+scrolling_label:
+  enabled: false
+  update_interval_ms: 33
+  style: "left"
+  separator: " | "
+  label_padding: 0
+  always_scroll: false
+  ease_slope: 20
+  ease_pos: 0.8
+  ease_min: 0.5
+label_shadow:
+  enabled: true
+  color: "black"
+  radius: 3
+  offset: [ 1, 1 ]

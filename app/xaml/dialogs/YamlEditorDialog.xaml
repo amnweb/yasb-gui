@@ -1,0 +1,46 @@
+<ContentDialog xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                Title="{title}"
+                PrimaryButtonText="{save}"
+                CloseButtonText="{cancel}"
+                DefaultButton="Primary">
+  <ContentDialog.Resources>
+    <x:Double x:Key="ContentDialogMaxWidth">900</x:Double>
+  </ContentDialog.Resources>
+  <StackPanel Spacing="12" MinWidth="850">
+    <InfoBar x:Name="ErrorInfoBar" 
+             Severity="Error" 
+             IsOpen="False" 
+             IsClosable="True"
+             Title="{error_title}"/>
+    <Grid ColumnSpacing="12">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock Text="{name_label}" VerticalAlignment="Center" Opacity="0.8"/>
+      <TextBox x:Name="NameInput" Grid.Column="1" Text="{name}" MinWidth="200"/>
+    </Grid>
+    <TextBlock x:Name="NameError" Foreground="{{ThemeResource SystemFillColorCriticalBrush}}" 
+               Visibility="Collapsed" FontSize="12"/>
+    <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Text="{type_label}" VerticalAlignment="Center" Opacity="0.7"/>
+        <Border Background="{{ThemeResource SystemControlBackgroundBaseLowBrush}}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+             <TextBlock x:Name="TypeText" FontFamily="Consolas, Courier New, monospace"/>
+        </Border>
+    </StackPanel>
+    <TextBlock x:Name="OptionsLabel" Style="{{StaticResource BodyStrongTextBlockStyle}}"/>
+    <Grid Height="420">
+      <Grid x:Name="LoadingOverlay">
+        <ProgressRing IsActive="True" Width="32" Height="32"/>
+      </Grid>
+      <Border x:Name="EditorBorder" 
+              BorderBrush="{{ThemeResource ControlStrokeColorDefaultBrush}}" 
+              BorderThickness="1" 
+              CornerRadius="4"
+              Visibility="Collapsed">
+        <WebView2 x:Name="EditorWebView" DefaultBackgroundColor="Transparent"/>
+      </Border>
+    </Grid>
+  </StackPanel>
+</ContentDialog>

@@ -1,0 +1,7 @@
+<Storyboard xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+    <DoubleAnimation x:Name="Anim" Storyboard.TargetProperty="Y" Duration="0:0:0.25">
+        <DoubleAnimation.EasingFunction>
+            <CubicEase EasingMode="EaseInOut"/>
+        </DoubleAnimation.EasingFunction>
+    </DoubleAnimation>
+</Storyboard>

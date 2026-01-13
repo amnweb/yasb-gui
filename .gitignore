@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+ENV/
+env/
+.DS_Store
+Thumbs.db
+desktop.ini
+build/
+dist/
+*.msi
+*.exe
+*.log

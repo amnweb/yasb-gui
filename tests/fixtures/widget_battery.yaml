@@ -1,0 +1,18 @@
+# Widget: yasb.battery.BatteryWidget
+# Tests: nested mappings (charging_options, energy_thresholds)
+
+label: "{icon} {percent}%"
+label_alt: "{percent}%"
+update_interval: 5000
+time_remaining_natural: true
+charging_options:
+  icon_format: "{charging_icon}"
+  blink_charging_icon: true
+energy_thresholds:
+  critical: 10
+  low: 25
+  medium: 50
+  high: 75
+  full: 100
+callbacks:
+  on_left: toggle_label

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Code Editor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background: #191a1c;
+        }
+        body.light { background: #f2f2f2; }
+        #container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        #editor {
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+        }
+        #error-bar {
+            display: none;
+            padding: 8px 12px;
+            background: #d32f2f;
+            color: white;
+            font-size: 13px;
+            align-items: center;
+            gap: 8px;
+        }
+        #error-bar.visible { display: flex; }
+        
+        /* Error line highlighting */
+        .error-line-background {
+            background: rgba(255, 0, 0, 0.2) !important;
+        }
+        .error-glyph {
+            background: #d32f2f;
+            margin-left: 3px;
+            width: 4px !important;
+        }
+        .monaco-sash {
+            display: none !important;
+        }
+        .monaco-editor .find-widget {
+            right: 16px !important;
+            left: 16px !important;
+            width: auto !important;
+            max-width: none !important;
+            border-radius: 4px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 1px rgba(0, 0, 0, 0.12) !important;
+            padding: 12px 12px !important;
+            background: #202020 !important;
+            align-items: center !important;
+            height: 54px !important;
+            transition: all 0.4s  !important;
+        }
+        .monaco-editor .line-numbers {
+            color: rgba(255, 255, 255, 0.2) !important;
+        }
+        .monaco-editor .find-widget:not(.visible) {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        .monaco-editor .find-widget.visible {
+            top: 12px !important;
+            opacity: 1 !important;
+            display: flex !important;
+        }
+        .monaco-editor .find-widget .find-part {
+            margin: 0 !important;
+            flex: 1 !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+        .monaco-editor .find-widget .replace-part {
+            display: none !important;
+        }
+        .monaco-editor .find-widget .monaco-findInput {
+            flex: 1 !important;
+            width: 100% !important;
+        }
+        body.light .monaco-editor .find-widget {
+            background: #ffffff !important;
+            border: 1px solid rgba(0, 0, 0, 0.08) !important;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.06) !important;
+        }
+        .monaco-editor .find-widget .monaco-inputbox {
+            border-radius: 4px !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            background-color: #191a1c !important;
+            height: 30px !important;
+            flex: 1 !important;
+        }
+        .monaco-editor .find-widget .monaco-inputbox .input,
+        .monaco-editor .find-widget .monaco-inputbox .mirror {
+            height: 28px !important;
+            line-height: 28px !important;
+            padding: 0 8px !important;
+            background: transparent !important;
+        }
+        body.light .monaco-editor .find-widget .monaco-inputbox {
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            background-color: rgba(0, 0, 0, 0.03) !important;
+        }
+        body.light .monaco-editor .find-widget .monaco-inputbox .input,
+        body.light .monaco-editor .find-widget .monaco-inputbox .mirror {
+            background: transparent !important;
+        }
+        .monaco-editor .find-widget .monaco-inputbox.synthetic-focus {
+            border-color: #35373a !important;
+            outline-color: #35373a!important;
+        }
+        .monaco-editor .find-widget .button {
+            border-radius: 4px !important;
+            border-left: none !important;
+            height: 32px !important;
+            width: 32px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        .monaco-editor .find-widget .button:hover {
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+        body.light .monaco-editor .find-widget .button:hover {
+            background: rgba(0, 0, 0, 0.05) !important;
+        }
+        .monaco-editor .find-widget .close-fw {
+            border-left: none !important;
+        }
+ 
+        /* .monaco-hover-content,
+        .monaco-editor .find-widget .monaco-inputbox input::after {
+            display: none !important;
+        } */
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="error-bar">
+            <span>⚠</span>
+            <span id="error-text"></span>
+        </div>
+        <div id="editor"></div>
+    </div>
+
+    <script src="monaco/vs/loader.js"></script>
+    <script>
+        let editor = null;
+        let currentLanguage = 'yaml';
+        let ignoreContentChange = true;
+        
+        const basePath = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
+        
+        require.config({ 
+            paths: { 'vs': basePath + '/monaco/vs' },
+            'vs/nls': { availableLanguages: {} }
+        });
+
+        require(['vs/editor/editor.main'], function() {
+            // Define custom themes
+            monaco.editor.defineTheme('custom-dark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [],
+                colors: {
+                    'editor.background': '#191a1c',
+                    'editorGutter.background': '#191a1c'
+                }
+            });
+            
+            monaco.editor.defineTheme('custom-light', {
+                base: 'vs',
+                inherit: true,
+                rules: [],
+                colors: {
+                    'editor.background': '#f2f2f2',
+                    'editorGutter.background': '#f2f2f2'
+                }
+            });
+            
+            editor = monaco.editor.create(document.getElementById('editor'), {
+                value: '',
+                language: currentLanguage,
+                theme: 'custom-dark',
+                automaticLayout: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                renderWhitespace: 'none',
+                renderLineHighlight: 'none',
+                occurrencesHighlight: 'off',
+                selectionHighlight: false,
+                matchBrackets: 'near',
+                links: false,
+                colorDecorators: true,
+                codeLens: false,
+                lightbulb: { enabled: 'off' },
+                quickSuggestions: false,
+                suggestOnTriggerCharacters: false,
+                acceptSuggestionOnEnter: 'off',
+                tabCompletion: 'off',
+                wordBasedSuggestions: 'off',
+                parameterHints: { enabled: false },
+                hover: { enabled: false },
+                inlayHints: { enabled: 'off' },
+                stickyScroll: { enabled: false },
+                dropIntoEditor: { enabled: false },
+                fontSize: 14,
+                fontFamily: 'Cascadia Code, Consolas, monospace',
+                fontLigatures: false,
+                lineNumbers: 'on',
+                tabSize: 2,
+                insertSpaces: true,
+                wordWrap: 'on',
+                folding: true,
+                foldingStrategy: 'indentation',
+                showFoldingControls: 'mouseover',
+                bracketPairColorization: { enabled: true },
+                padding: { top: 8, bottom: 8 },
+                smoothScrolling: true,
+                scrollbar: {
+                    vertical: 'visible',
+                    horizontal: 'auto',
+                    verticalScrollbarSize: 4,
+                    horizontalScrollbarSize: 4,
+                    useShadows: false
+                },
+                guides: {
+                    indentation: true,
+                },
+                find: {
+                    addExtraSpaceOnTop: false,
+                    autoFindInSelection: 'never',
+                    seedSearchStringFromSelection: 'selection',
+                    cursorMoveOnType: true,
+                    loop: true
+                },
+                contextmenu: false
+            });
+
+            // Hide find widget buttons via CSS after editor is created
+            const style = document.createElement('style');
+            style.textContent = `
+                .monaco-editor .find-widget .find-actions,
+                .monaco-editor .find-widget .button.toggle,
+                .monaco-editor .find-widget .controls,
+                .monaco-editor .find-widget .monaco-findInput .controls,
+                .monaco-editor .find-widget .close-fw,
+                .monaco-editor .find-widget .button.codicon-widget-close {
+                    display: none !important;
+                }
+                .monaco-editor .find-widget .monaco-inputbox {
+                    flex: 1 !important;
+                }
+                .monaco-editor .find-widget .monaco-findInput {
+                    width: 100% !important;
+                }
+                .monaco-editor .find-widget .monaco-findInput .input {
+                    padding-right: 8px !important;
+                }
+            `;
+            document.head.appendChild(style);
+
+            // Disable all keyboard shortcuts except Ctrl+F (search), Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z, Ctrl+Y
+            const allowedKeys = [
+                'actions.find',                    // Ctrl+F
+                'editor.action.clipboardCopyAction',   // Ctrl+C
+                'editor.action.clipboardCutAction',    // Ctrl+X
+                'editor.action.clipboardPasteAction',  // Ctrl+V
+                'editor.action.selectAll',             // Ctrl+A
+                'undo',                                // Ctrl+Z
+                'redo'                                 // Ctrl+Y
+            ];
+            
+            // Get all editor actions and disable them except allowed ones
+            // const actions = editor.getSupportedActions();
+            // actions.forEach(action => {
+            //     if (!allowedKeys.includes(action.id)) {
+            //         editor.addCommand(0, () => {}, action.id);
+            //     }
+            // });
+
+            // // Explicitly disable common shortcuts
+            // editor.addCommand(monaco.KeyCode.F1, () => {});  // Command palette
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, () => {});  // Command palette
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.F2, () => {});  // Rename
+            // editor.addCommand(monaco.KeyCode.F2, () => {});  // Rename
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG, () => {});  // Go to line
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP, () => {});  // Quick open
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyO, () => {});  // Go to symbol
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {});  // Keyboard shortcuts prefix
+            // editor.addCommand(monaco.KeyCode.F12, () => {});  // Go to definition
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, () => {});  // Quick fix
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyD, () => {});  // Add selection to next find match
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL, () => {});  // Select all occurrences
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, () => {});  // Toggle comment
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyK, () => {});  // Delete line
+            // editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.UpArrow, () => {});  // Move line up
+            // editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.DownArrow, () => {});  // Move line down
+            // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH, () => {});  // Find and replace
+
+            // Disable CSS hover/references (MDN docs, syntax info)
+            monaco.languages.css.cssDefaults.setModeConfiguration({
+                completionItems: true,
+                hovers: false,
+                documentSymbols: false,
+                definitions: false,
+                references: false,
+                documentHighlights: false,
+                rename: false,
+                colors: true,
+                foldingRanges: true,
+                diagnostics: true
+            });
+
+            // Content change handler
+            editor.onDidChangeModelContent(function() {
+                if (currentLanguage === 'yaml') validateYaml();
+                if (!ignoreContentChange && window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({ type: 'contentChanged', content: editor.getValue() });
+                }
+            });
+
+            // Notify host that editor is ready
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'ready' });
+            }
+        });
+
+        function validateYaml() {
+            const content = editor.getValue();
+            const errorBar = document.getElementById('error-bar');
+            const errorText = document.getElementById('error-text');
+            const lines = content.split('\n');
+            let errors = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.includes('\t')) {
+                    errors.push({ line: i + 1, msg: 'Tabs are not allowed in YAML, use spaces' });
+                }
+                const spaces = line.match(/^(\s*)/)[1].length;
+                if (spaces % 2 !== 0 && line.trim().length > 0) {
+                    errors.push({ line: i + 1, msg: 'Indentation should be a multiple of 2 spaces' });
+                }
+            }
+            
+            if (errors.length > 0) {
+                errorBar.classList.add('visible');
+                errorText.textContent = `Line ${errors[0].line}: ${errors[0].msg}`;
+                monaco.editor.setModelMarkers(editor.getModel(), 'yaml', errors.slice(0, 5).map(e => ({
+                    severity: monaco.MarkerSeverity.Warning,
+                    message: e.msg,
+                    startLineNumber: e.line,
+                    startColumn: 1,
+                    endLineNumber: e.line,
+                    endColumn: lines[e.line - 1].length + 1
+                })));
+            } else {
+                errorBar.classList.remove('visible');
+                monaco.editor.setModelMarkers(editor.getModel(), 'yaml', []);
+            }
+        }
+
+        function setContent(content) {
+            if (!editor) return;
+            ignoreContentChange = true;
+            editor.setValue(content || '');
+            if (currentLanguage === 'yaml') validateYaml();
+            ignoreContentChange = false;
+        }
+
+        function getContent() {
+            return editor ? editor.getValue() : '';
+        }
+
+        function setLanguage(language) {
+            currentLanguage = language || 'yaml';
+            if (editor) {
+                monaco.editor.setModelLanguage(editor.getModel(), currentLanguage);
+                monaco.editor.setModelMarkers(editor.getModel(), 'yaml', []);
+                document.getElementById('error-bar').classList.remove('visible');
+            }
+        }
+
+        function setTheme(theme) {
+            const isLight = theme === 'light';
+            document.body.className = isLight ? 'light' : '';
+            if (editor) {
+                monaco.editor.setTheme(isLight ? 'custom-light' : 'custom-dark');
+            }
+        }
+
+        function setFont(fontFamily, fontSize) {
+            if (editor) {
+                editor.updateOptions({
+                    fontFamily: fontFamily || 'Cascadia Code, Consolas, monospace',
+                    fontSize: fontSize || 14
+                });
+            }
+        }
+
+        function initEditor(options) {
+            if (!editor) return;
+            
+            const startTime = Date.now();
+            
+            if (options.theme) setTheme(options.theme);
+            if (options.language) setLanguage(options.language);
+            if (options.fontFamily || options.fontSize) setFont(options.fontFamily, options.fontSize);
+            if (options.content !== undefined) setContent(options.content);
+            if (options.focus) editor.focus();
+            
+            // Calculate delay to meet minimum display time
+            const elapsed = (options.elapsedMs || 0) + (Date.now() - startTime);
+            const delay = Math.max(0, (options.minTotalMs || 1700) - elapsed);
+            
+            setTimeout(function() {
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({ type: 'initialized' });
+                }
+            }, delay);
+        }
+
+        function formatContent() {
+            if (editor && window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'format', content: editor.getValue(), language: currentLanguage });
+            }
+        }
+        window.formatContent = formatContent;  // Expose globally for context menu
+
+        function fixIndentation() {
+            if (editor && window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'fix_indentation', content: editor.getValue() });
+            }
+        }
+        window.fixIndentation = fixIndentation;  // Expose globally for context menu
+
+        function setFormattedContent(content) {
+            if (editor && content) {
+                const pos = editor.getPosition();
+                editor.setValue(content);
+                if (pos) editor.setPosition(pos);
+            }
+        }
+
+        let errorDecorations = [];
+        
+        function showError(line, column, message) {
+            if (!editor) return;
+            
+            const model = editor.getModel();
+            const lineContent = model.getLineContent(line) || '';
+            
+            // Set marker on the error line (squiggly underline)
+            monaco.editor.setModelMarkers(model, 'yaml-error', [{
+                severity: monaco.MarkerSeverity.Error,
+                message: message,
+                startLineNumber: line,
+                startColumn: column || 1,
+                endLineNumber: line,
+                endColumn: lineContent.length + 1
+            }]);
+            
+            // Add red background decoration to the whole line
+            errorDecorations = editor.deltaDecorations(errorDecorations, [{
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                    isWholeLine: true,
+                    className: 'error-line-background',
+                    glyphMarginClassName: 'error-glyph'
+                }
+            }]);
+            
+            // Scroll to and highlight the error line
+            editor.revealLineInCenter(line);
+            editor.setPosition({ lineNumber: line, column: column || 1 });
+            editor.focus();
+        }
+
+        function clearError() {
+            if (!editor) return;
+            monaco.editor.setModelMarkers(editor.getModel(), 'yaml-error', []);
+            errorDecorations = editor.deltaDecorations(errorDecorations, []);
+        }
+
+        function insertAtCursor(text) {
+            if (editor) {
+                editor.executeEdits("insert", [{
+                    range: editor.getSelection(),
+                    text: text,
+                    forceMoveMarkers: true
+                }]);
+            }
+        }
+
+        // Message handler
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function(e) {
+                const d = e.data;
+                if (d.action === 'setContent') setContent(d.content);
+                else if (d.action === 'setLanguage') setLanguage(d.language);
+                else if (d.action === 'setTheme') setTheme(d.theme);
+                else if (d.action === 'setFont') setFont(d.fontFamily, d.fontSize);
+                else if (d.action === 'format') formatContent();
+                else if (d.action === 'setFormattedContent') setFormattedContent(d.content);
+                else if (d.action === 'focus' && editor) editor.focus();
+            });
+        }
+    </script>
+</body>
+</html>

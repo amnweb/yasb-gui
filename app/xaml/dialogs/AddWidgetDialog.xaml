@@ -1,0 +1,12 @@
+<ContentDialog xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                Title="{title}"
+                CloseButtonText="{close}">
+  <StackPanel Spacing="12" HorizontalAlignment="Stretch" MinWidth="400" MaxWidth="440">
+    <ComboBox x:Name="PositionCombo" Header="{position_label}" HorizontalAlignment="Stretch" />
+    <TextBox x:Name="SearchBox" PlaceholderText="{search_placeholder}" HorizontalAlignment="Stretch" />
+    <ScrollViewer MaxHeight="350" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+      <StackPanel x:Name="WidgetsList" Spacing="4" />
+    </ScrollViewer>
+  </StackPanel>
+</ContentDialog>

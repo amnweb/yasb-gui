@@ -1,0 +1,6 @@
+watch_stylesheet: true
+watch_config: true
+debug: false
+update_check: true
+bars: {}
+widgets: {}

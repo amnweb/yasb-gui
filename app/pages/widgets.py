@@ -46,6 +46,7 @@ from winui3.microsoft.ui.xaml.controls import (
     ContentDialogButton,
     FontIcon,
     Grid,
+    HyperlinkButton,
     InfoBar,
     MenuFlyout,
     MenuFlyoutItem,
@@ -106,10 +107,14 @@ class WidgetsPage:
             page_title = content.find_name("PageTitle").as_(TextBlock)
             select_bar_label = content.find_name("SelectBarLabel").as_(TextBlock)
             bar_selector = content.find_name("BarSelector").as_(ComboBox)
+            add_widget_button = content.find_name("AddWidgetButton").as_(Button)
+            add_widget_text = content.find_name("AddWidgetText").as_(TextBlock)
             self._sections_panel = content.find_name("SectionsPanel").as_(StackPanel)
 
             page_title.text = t("widgets_title")
             select_bar_label.text = t("bars_selection")
+            add_widget_text.text = t("widgets_add")
+            add_widget_button.add_click(lambda s, e: self._show_add_widget_dialog(None))
 
             self._create_sections()
 
@@ -582,12 +587,22 @@ class WidgetsPage:
         if not widget:
             warning(f"Widget not found: {widget_name}")
             return
+
+        # Get doc_link from registry by matching type_path
+        widget_type = widget.get("type", "unknown")
+        doc_link = ""
+        for wid, info in self._widget_registry.items():
+            if info.type_path == widget_type:
+                doc_link = getattr(info, "doc_link", "")
+                break
+
         self._show_widget_editor_dialog(
             widget_name=widget_name,
-            widget_type=widget.get("type", "unknown"),
+            widget_type=widget_type,
             options=widget.get("options", {}),
             position=position,
             is_new=False,
+            doc_link=doc_link,
         )
 
     def _show_new_widget_dialog(self, widget_info, position):
@@ -607,9 +622,10 @@ class WidgetsPage:
             options=widget_info["defaults"].copy() if widget_info["defaults"] else {},
             position=position,
             is_new=True,
+            doc_link=widget_info.get("doc_link", ""),
         )
 
-    def _show_widget_editor_dialog(self, widget_name, widget_type, options, position, is_new):
+    def _show_widget_editor_dialog(self, widget_name, widget_type, options, position, is_new, doc_link=""):
         """Show dialog to edit or create a widget's options using Monaco editor.
 
         Args:
@@ -618,6 +634,7 @@ class WidgetsPage:
             options: Widget options dict
             position: Bar position ("left", "center", "right") or None
             is_new: True if creating new widget, False if editing existing
+            doc_link: URL to widget documentation (optional)
         """
         try:
             self._app._loading = True
@@ -650,6 +667,7 @@ class WidgetsPage:
             name_input = dialog_content.find_name("NameInput").as_(TextBox)
             name_error = dialog_content.find_name("NameError").as_(TextBlock)
             type_text = dialog_content.find_name("TypeText").as_(TextBlock)
+            docs_link = dialog_content.find_name("DocsLink").as_(HyperlinkButton)
             options_label = dialog_content.find_name("OptionsLabel").as_(TextBlock)
             webview = dialog_content.find_name("EditorWebView").as_(WebView2)
             loading_overlay = dialog_content.find_name("LoadingOverlay").as_(Grid)
@@ -657,6 +675,13 @@ class WidgetsPage:
 
             type_text.text = widget_type
             options_label.text = t("widgets_options")
+
+            # Set up docs link if available
+            if doc_link:
+                docs_link_text = dialog_content.find_name("DocsLinkText").as_(TextBlock)
+                docs_link_text.text = t("widgets_docs_link")
+                docs_link.add_click(lambda s, e, url=doc_link: __import__("webbrowser").open(url))
+                docs_link.visibility = Visibility.VISIBLE
 
             # Name validation state
             editor_state_name = {"valid": True, "original_name": widget_name}
@@ -929,6 +954,7 @@ class WidgetsPage:
                         "description": info.description,
                         "type_path": info.type_path,
                         "defaults": getattr(info, "defaults", {}),
+                        "doc_link": getattr(info, "doc_link", ""),
                     }
                 )
             all_widgets.sort(key=lambda x: (x["category"], x["name"]))

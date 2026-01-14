@@ -122,6 +122,7 @@
 	"widgets_center_desc": "Widgets centered in the bar",
 	"widgets_right_desc": "Widgets aligned to the right side of the bar",
 	"widgets_yaml_error_title": "Invalid YAML",
+	"widgets_docs_link": "Widget Docs",
 
 	"styles_title": "Styles (CSS)",
 

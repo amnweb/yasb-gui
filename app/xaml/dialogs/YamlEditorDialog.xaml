@@ -28,6 +28,12 @@
         <Border Background="{{ThemeResource SystemControlBackgroundBaseLowBrush}}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
              <TextBlock x:Name="TypeText" FontFamily="Consolas, Courier New, monospace"/>
         </Border>
+        <HyperlinkButton x:Name="DocsLink" Padding="0" VerticalAlignment="Center" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock x:Name="DocsLinkText"/>
+                <FontIcon Glyph="&#xE8A7;" FontSize="12"/>
+            </StackPanel>
+        </HyperlinkButton>
     </StackPanel>
     <TextBlock x:Name="OptionsLabel" Style="{{StaticResource BodyStrongTextBlockStyle}}"/>
     <Grid Height="420">

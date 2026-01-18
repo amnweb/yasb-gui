@@ -100,7 +100,8 @@ jobs:
               client_payload: {
                 source_repo: 'amnweb/yasb-gui',
                 run_id: context.runId,
-                artifact_configuration: 'signing_executable',
+                signing_policy: 'release-signing-gui',
+                artifact_configuration: 'release-signing-gui',
                 files: ['ygui.exe'],
                 mode: 'artifact',
                 input_artifact_name: `unsigned-exe-${suffix}`,
@@ -343,6 +344,7 @@ jobs:
                 source_repo: 'amnweb/yasb-gui',
                 release_id: parseInt(process.env.RELEASE_ID),
                 release_tag: version,
+                signing_policy: 'signing_installer',
                 artifact_configuration: 'signing_installer',
                 files: [process.env.MSI_NAME],
                 mode: 'release',

@@ -373,6 +373,7 @@ jobs:
         env:
           RELEASE_ID: ${{ github.event.client_payload.release_id }}
         with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const releaseId = parseInt(process.env.RELEASE_ID);
             
@@ -399,6 +400,7 @@ jobs:
         env:
           RELEASE_ID: ${{ steps.check.outputs.release_id }}
         with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
             const crypto = require('crypto');
@@ -430,6 +432,17 @@ jobs:
             }
             
             fs.writeFileSync('dist/checksums.txt', checksums);
+            
+            // Delete existing checksums.txt if present
+            const existingChecksum = release.assets.find(a => a.name === 'checksums.txt');
+            if (existingChecksum) {
+              console.log('Deleting existing checksums.txt...');
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: existingChecksum.id
+              });
+            }
             
             // Upload checksums
             await github.rest.repos.uploadReleaseAsset({
@@ -464,6 +477,7 @@ jobs:
         env:
           RELEASE_ID: ${{ steps.check.outputs.release_id }}
         with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
             const releaseId = parseInt(process.env.RELEASE_ID);

@@ -106,7 +106,6 @@ jobs:
                 mode: 'artifact',
                 input_artifact_name: `unsigned-exe-${suffix}`,
                 output_artifact_name: `signed-exe-${suffix}`,
-                callback_event: 'signing-complete',
                 callback_stage: `exe-${suffix}`,
                 release_type: '${{ inputs.release_type }}'
               }
@@ -348,7 +347,6 @@ jobs:
                 artifact_configuration: 'signing_installer',
                 files: [process.env.MSI_NAME],
                 mode: 'release',
-                callback_event: 'signing-complete',
                 callback_stage: `msi-${process.env.SUFFIX}`,
                 release_type: releaseType
               }

@@ -343,7 +343,7 @@ jobs:
                 source_repo: 'amnweb/yasb-gui',
                 release_id: parseInt(process.env.RELEASE_ID),
                 release_tag: version,
-                signing_policy: 'signing_installer',
+                signing_policy: 'release-signing',
                 artifact_configuration: 'signing_installer',
                 files: [process.env.MSI_NAME],
                 mode: 'release',

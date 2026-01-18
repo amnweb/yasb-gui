@@ -1,0 +1,501 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'prerelease'
+        type: choice
+        options:
+          - prerelease
+          - stable
+  repository_dispatch:
+    types: [signing-complete]
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  build-exe:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            artifact_suffix: x64
+          - arch: arm64
+            runner: windows-11-arm
+            artifact_suffix: aarch64
+
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      run_id: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          .\venv\Scripts\Activate
+          pip install --upgrade pip
+          pip install .[build] --no-cache
+        shell: pwsh
+
+      - name: Build EXE
+        run: |
+          .\venv\Scripts\Activate
+          python app/scripts/build.py build
+        shell: pwsh
+
+      - name: Upload unsigned EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-exe-${{ matrix.artifact_suffix }}
+          path: dist/ygui.exe
+
+  # Request EXE signing from yasb
+  request-exe-signing:
+    needs: build-exe
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - artifact_suffix: x64
+          - artifact_suffix: aarch64
+
+    steps:
+      - name: Trigger EXE signing on yasb
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const suffix = process.env.ARTIFACT_SUFFIX;
+            
+            console.log(`Requesting EXE signing for ${suffix}...`);
+            
+            await github.rest.repos.createDispatchEvent({
+              owner: 'amnweb',
+              repo: 'yasb',
+              event_type: 'sign-external',
+              client_payload: {
+                source_repo: 'amnweb/yasb-gui',
+                run_id: context.runId,
+                artifact_configuration: 'signing_executable',
+                files: ['ygui.exe'],
+                mode: 'artifact',
+                input_artifact_name: `unsigned-exe-${suffix}`,
+                output_artifact_name: `signed-exe-${suffix}`,
+                callback_event: 'signing-complete',
+                callback_stage: `exe-${suffix}`,
+                release_type: '${{ inputs.release_type }}'
+              }
+            });
+
+
+  build-msi:
+    if: >-
+      github.event_name == 'repository_dispatch' && 
+      github.event.client_payload.status == 'success' &&
+      startsWith(github.event.client_payload.stage, 'exe-')
+    runs-on: ${{ contains(github.event.client_payload.stage, 'x64') && 'windows-latest' || 'windows-11-arm' }}
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Determine architecture
+        id: arch
+        run: |
+          $stage = '${{ github.event.client_payload.stage }}'
+          if ($stage -match 'x64') {
+            echo "SUFFIX=x64" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "SUFFIX=aarch64" >> $env:GITHUB_OUTPUT
+          }
+        shell: pwsh
+
+      - name: Download signed EXE from yasb
+        uses: actions/github-script@v7
+        env:
+          YASB_RUN_ID: ${{ github.event.client_payload.yasb_run_id }}
+          OUTPUT_ARTIFACT: ${{ github.event.client_payload.output_artifact_name }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            
+            const runId = parseInt(process.env.YASB_RUN_ID);
+            const artifactName = process.env.OUTPUT_ARTIFACT;
+            
+            console.log(`Downloading ${artifactName} from yasb run ${runId}`);
+            
+            // Get artifact from yasb repo
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: 'amnweb',
+              repo: 'yasb',
+              run_id: runId
+            });
+            
+            const artifact = artifacts.artifacts.find(a => a.name === artifactName);
+            if (!artifact) {
+              throw new Error(`Artifact ${artifactName} not found in yasb run`);
+            }
+            
+            const { data: download } = await github.rest.actions.downloadArtifact({
+              owner: 'amnweb',
+              repo: 'yasb',
+              artifact_id: artifact.id,
+              archive_format: 'zip'
+            });
+            
+            fs.mkdirSync('signed-exe', { recursive: true });
+            fs.writeFileSync('signed.zip', Buffer.from(download));
+            execSync('powershell -Command "Expand-Archive -Path signed.zip -DestinationPath signed-exe -Force"');
+            
+            console.log('Signed EXE downloaded');
+            const files = fs.readdirSync('signed-exe');
+            console.log('Files:', files);
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          .\venv\Scripts\Activate
+          pip install --upgrade pip
+          pip install .[build] --no-cache
+        shell: pwsh
+
+      - name: Build EXE (to get full dist structure)
+        run: |
+          .\venv\Scripts\Activate
+          python app/scripts/build.py build
+        shell: pwsh
+
+      - name: Replace unsigned EXE with signed
+        run: |
+          Write-Host "Replacing unsigned EXE with signed version..."
+          Copy-Item -Path "signed-exe/ygui.exe" -Destination "dist/ygui.exe" -Force
+          Write-Host "Signed EXE in place"
+          Get-ChildItem dist/*.exe | ForEach-Object { 
+            Write-Host "  $($_.Name) - $([math]::Round($_.Length/1MB, 2)) MB"
+          }
+        shell: pwsh
+
+      - name: Build MSI with signed EXE
+        run: |
+          .\venv\Scripts\Activate
+          python app/scripts/build.py bdist_msi
+        shell: pwsh
+
+      - name: Get version and MSI filename
+        id: info
+        run: |
+          $content = Get-Content -Path "app/core/constants.py" -Raw
+          $version = [regex]::Match($content, 'APP_VERSION\s*=\s*"([^"]+)"').Groups[1].Value
+          $suffix = "${{ steps.arch.outputs.SUFFIX }}"
+          $msiName = "yasb-gui-${version}-${suffix}.msi"
+          
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "MSI_NAME=$msiName" >> $env:GITHUB_OUTPUT
+          echo "SUFFIX=$suffix" >> $env:GITHUB_OUTPUT
+          
+          Write-Host "Version: $version"
+          Write-Host "MSI: $msiName"
+        shell: pwsh
+
+      - name: Upload unsigned MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-msi-${{ steps.arch.outputs.SUFFIX }}
+          path: dist/out/*.msi
+
+      - name: Create or update draft release
+        id: release
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          MSI_NAME: ${{ steps.info.outputs.MSI_NAME }}
+          RELEASE_TYPE: ${{ github.event.client_payload.release_type || 'stable' }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const baseVersion = process.env.VERSION;
+            const releaseType = process.env.RELEASE_TYPE;
+            const isPrerelease = releaseType === 'prerelease';
+            
+            // For prerelease: v1.0.0-dev, for stable: v1.0.0
+            const version = isPrerelease ? `v${baseVersion}-dev` : `v${baseVersion}`;
+            const releaseName = isPrerelease 
+              ? `YASB GUI ${version} (Pre-release)` 
+              : `YASB GUI v${baseVersion}`;
+            
+            console.log(`Release type: ${releaseType}`);
+            console.log(`Tag: ${version}`);
+            
+            // Check if release already exists
+            let release;
+            try {
+              const { data: existing } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: version
+              });
+              release = existing;
+              console.log(`Found existing release: ${release.id}`);
+            } catch (e) {
+              // Create new release
+              const { data: created } = await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: version,
+                name: releaseName,
+                body: '**Build in progress...**\n\nSigning MSI installers...',
+                draft: true,
+                prerelease: isPrerelease
+              });
+              release = created;
+              console.log(`Created new release: ${release.id}`);
+            }
+            
+            core.setOutput('release_type', releaseType);
+            
+            // Upload MSI to release
+            const msiFiles = fs.readdirSync('dist/out').filter(f => f.endsWith('.msi'));
+            for (const msi of msiFiles) {
+              const data = fs.readFileSync(`dist/out/${msi}`);
+              console.log(`Uploading ${msi}...`);
+              
+              // Delete existing if present
+              const existingAsset = release.assets?.find(a => a.name === msi);
+              if (existingAsset) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: existingAsset.id
+                });
+              }
+              
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                name: msi,
+                data: data
+              });
+            }
+            
+            core.setOutput('release_id', release.id);
+            return release.id;
+
+      - name: Trigger MSI signing on yasb
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          MSI_NAME: ${{ steps.info.outputs.MSI_NAME }}
+          SUFFIX: ${{ steps.info.outputs.SUFFIX }}
+          RELEASE_TYPE: ${{ steps.release.outputs.release_type }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            console.log('Requesting MSI signing...');
+            
+            const releaseType = process.env.RELEASE_TYPE || 'stable';
+            const isPrerelease = releaseType === 'prerelease';
+            const version = isPrerelease 
+              ? `v${process.env.VERSION}-dev` 
+              : `v${process.env.VERSION}`;
+            
+            await github.rest.repos.createDispatchEvent({
+              owner: 'amnweb',
+              repo: 'yasb',
+              event_type: 'sign-external',
+              client_payload: {
+                source_repo: 'amnweb/yasb-gui',
+                release_id: parseInt(process.env.RELEASE_ID),
+                release_tag: version,
+                artifact_configuration: 'signing_installer',
+                files: [process.env.MSI_NAME],
+                mode: 'release',
+                callback_event: 'signing-complete',
+                callback_stage: `msi-${process.env.SUFFIX}`,
+                release_type: releaseType
+              }
+            });
+
+  finalize-release:
+    if: >-
+      github.event_name == 'repository_dispatch' && 
+      github.event.client_payload.status == 'success' &&
+      startsWith(github.event.client_payload.stage, 'msi-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if all MSIs are signed
+        id: check
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
+        with:
+          script: |
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            const msiFiles = release.assets.filter(a => a.name.endsWith('.msi'));
+            console.log(`Found ${msiFiles.length} MSI files in release`);
+            
+            // We expect 2 MSIs (x64 and aarch64)
+            const ready = msiFiles.length >= 2;
+            core.setOutput('ready', ready);
+            core.setOutput('release_id', releaseId);
+            core.setOutput('release_tag', release.tag_name);
+            
+            return ready;
+
+      - name: Generate checksums
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.check.outputs.release_id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            fs.mkdirSync('dist', { recursive: true });
+            let checksums = '';
+            
+            for (const asset of release.assets.filter(a => a.name.endsWith('.msi'))) {
+              console.log(`Downloading ${asset.name} for checksum...`);
+              
+              const { data } = await github.rest.repos.getReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+                headers: { accept: 'application/octet-stream' }
+              });
+              
+              const hash = crypto.createHash('sha256').update(Buffer.from(data)).digest('hex');
+              checksums += `${hash}  ${asset.name}\n`;
+              console.log(`${asset.name}: ${hash}`);
+            }
+            
+            fs.writeFileSync('dist/checksums.txt', checksums);
+            
+            // Upload checksums
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              name: 'checksums.txt',
+              data: fs.readFileSync('dist/checksums.txt')
+            });
+
+      - name: Generate changelog
+        if: steps.check.outputs.ready == 'true'
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" --no-merges)
+          else
+            COMMITS=$(git log "$PREVIOUS_TAG..HEAD" --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" --no-merges)
+          fi
+          
+          echo "## What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "$COMMITS" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "---" >> CHANGELOG.md
+
+      - name: Publish release
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.check.outputs.release_id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              body: changelog,
+              draft: true
+            });
+            
+
+      - name: Cleanup artifacts
+        if: always()
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: |
+            unsigned-*
+            signed-*
+          failOnError: false
+
+  handle-failure:
+    if: >-
+      github.event_name == 'repository_dispatch' && 
+      github.event.client_payload.status == 'failed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report failure
+        run: |
+          echo "Signing failed at stage: ${{ github.event.client_payload.stage }}"
+          echo "Check: ${{ github.event.client_payload.run_url }}"
+          exit 1

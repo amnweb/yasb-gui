@@ -162,8 +162,6 @@ jobs:
         env:
           SUFFIX: ${{ matrix.suffix }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-          RELEASE_TAG: ${{ needs.create-release.outputs.tag }}
-          VERSION: ${{ needs.create-release.outputs.version }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
@@ -184,9 +182,7 @@ jobs:
                 input_artifact_name: `dist-${suffix}`,
                 output_artifact_name: `signed-dist-${suffix}`,
                 callback_stage: `exe-${suffix}`,
-                release_id: parseInt(process.env.RELEASE_ID),
-                release_tag: process.env.RELEASE_TAG,
-                version: process.env.VERSION
+                release_id: parseInt(process.env.RELEASE_ID)
               }
             });
 

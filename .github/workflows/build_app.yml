@@ -70,7 +70,6 @@ jobs:
           name: unsigned-exe-${{ matrix.artifact_suffix }}
           path: dist/ygui.exe
 
-  # Request EXE signing from yasb
   request-exe-signing:
     needs: build-exe
     if: github.event_name == 'workflow_dispatch'
@@ -111,8 +110,7 @@ jobs:
               }
             });
 
-
-  build-msi:
+  build-msix:
     if: >-
       github.event_name == 'repository_dispatch' && 
       github.event.client_payload.status == 'success' &&
@@ -137,8 +135,10 @@ jobs:
           $stage = '${{ github.event.client_payload.stage }}'
           if ($stage -match 'x64') {
             echo "SUFFIX=x64" >> $env:GITHUB_OUTPUT
+            echo "MSIX_ARCH=x64" >> $env:GITHUB_OUTPUT
           } else {
             echo "SUFFIX=aarch64" >> $env:GITHUB_OUTPUT
+            echo "MSIX_ARCH=aarch64" >> $env:GITHUB_OUTPUT
           }
         shell: pwsh
 
@@ -158,7 +158,6 @@ jobs:
             
             console.log(`Downloading ${artifactName} from yasb run ${runId}`);
             
-            // Get artifact from yasb repo
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
               owner: 'amnweb',
               repo: 'yasb',
@@ -209,40 +208,41 @@ jobs:
           }
         shell: pwsh
 
-      - name: Build MSI with signed EXE
+      - name: Build MSIX with signed EXE
         run: |
           .\venv\Scripts\Activate
-          python app/scripts/build.py bdist_msi
+          python app/scripts/build_msix.py --arch ${{ steps.arch.outputs.MSIX_ARCH }}
         shell: pwsh
 
-      - name: Get version and MSI filename
+      - name: Get version and MSIX filename
         id: info
         run: |
-          $content = Get-Content -Path "app/core/constants.py" -Raw
+          $content = Get-Content -Path "app/scripts/build_msix.py" -Raw
           $version = [regex]::Match($content, 'APP_VERSION\s*=\s*"([^"]+)"').Groups[1].Value
           $suffix = "${{ steps.arch.outputs.SUFFIX }}"
-          $msiName = "yasb-gui-${version}-${suffix}.msi"
+          $msixArch = "${{ steps.arch.outputs.MSIX_ARCH }}"
+          $msixName = "yasb-gui-${version}-${msixArch}.msix"
           
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-          echo "MSI_NAME=$msiName" >> $env:GITHUB_OUTPUT
+          echo "MSIX_NAME=$msixName" >> $env:GITHUB_OUTPUT
           echo "SUFFIX=$suffix" >> $env:GITHUB_OUTPUT
           
           Write-Host "Version: $version"
-          Write-Host "MSI: $msiName"
+          Write-Host "MSIX: $msixName"
         shell: pwsh
 
-      - name: Upload unsigned MSI
+      - name: Upload unsigned MSIX
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-msi-${{ steps.arch.outputs.SUFFIX }}
-          path: dist/out/*.msi
+          name: unsigned-msix-${{ steps.arch.outputs.SUFFIX }}
+          path: msix/*.msix
 
       - name: Create or update draft release
         id: release
         uses: actions/github-script@v7
         env:
           VERSION: ${{ steps.info.outputs.VERSION }}
-          MSI_NAME: ${{ steps.info.outputs.MSI_NAME }}
+          MSIX_NAME: ${{ steps.info.outputs.MSIX_NAME }}
           RELEASE_TYPE: ${{ github.event.client_payload.release_type || 'stable' }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
@@ -252,33 +252,31 @@ jobs:
             const releaseType = process.env.RELEASE_TYPE;
             const isPrerelease = releaseType === 'prerelease';
             
-            // For prerelease: v1.0.0-dev, for stable: v1.0.0
-            const version = isPrerelease ? `v${baseVersion}-dev` : `v${baseVersion}`;
+            // Prerelease always uses 'dev' tag, stable uses versioned tag
+            const tag = isPrerelease ? 'dev' : `v${baseVersion}`;
             const releaseName = isPrerelease 
-              ? `YASB GUI ${version} (Pre-release)` 
+              ? `YASB GUI Dev Build (${baseVersion})` 
               : `YASB GUI v${baseVersion}`;
             
             console.log(`Release type: ${releaseType}`);
-            console.log(`Tag: ${version}`);
+            console.log(`Tag: ${tag}`);
             
-            // Check if release already exists
             let release;
             try {
               const { data: existing } = await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                tag: version
+                tag: tag
               });
               release = existing;
               console.log(`Found existing release: ${release.id}`);
             } catch (e) {
-              // Create new release
               const { data: created } = await github.rest.repos.createRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                tag_name: version,
+                tag_name: tag,
                 name: releaseName,
-                body: '**Build in progress...**\n\nSigning MSI installers...',
+                body: '**Build in progress...**\n\nSigning MSIX installers...',
                 draft: true,
                 prerelease: isPrerelease
               });
@@ -288,14 +286,12 @@ jobs:
             
             core.setOutput('release_type', releaseType);
             
-            // Upload MSI to release
-            const msiFiles = fs.readdirSync('dist/out').filter(f => f.endsWith('.msi'));
-            for (const msi of msiFiles) {
-              const data = fs.readFileSync(`dist/out/${msi}`);
-              console.log(`Uploading ${msi}...`);
+            const msixFiles = fs.readdirSync('msix').filter(f => f.endsWith('.msix'));
+            for (const msix of msixFiles) {
+              const data = fs.readFileSync(`msix/${msix}`);
+              console.log(`Uploading ${msix}...`);
               
-              // Delete existing if present
-              const existingAsset = release.assets?.find(a => a.name === msi);
+              const existingAsset = release.assets?.find(a => a.name === msix);
               if (existingAsset) {
                 await github.rest.repos.deleteReleaseAsset({
                   owner: context.repo.owner,
@@ -308,7 +304,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: release.id,
-                name: msi,
+                name: msix,
                 data: data
               });
             }
@@ -316,24 +312,23 @@ jobs:
             core.setOutput('release_id', release.id);
             return release.id;
 
-      - name: Trigger MSI signing on yasb
+      - name: Trigger MSIX signing on yasb
         uses: actions/github-script@v7
         env:
           VERSION: ${{ steps.info.outputs.VERSION }}
           RELEASE_ID: ${{ steps.release.outputs.release_id }}
-          MSI_NAME: ${{ steps.info.outputs.MSI_NAME }}
+          MSIX_NAME: ${{ steps.info.outputs.MSIX_NAME }}
           SUFFIX: ${{ steps.info.outputs.SUFFIX }}
           RELEASE_TYPE: ${{ steps.release.outputs.release_type }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
-            console.log('Requesting MSI signing...');
+            console.log('Requesting MSIX signing...');
             
             const releaseType = process.env.RELEASE_TYPE || 'stable';
             const isPrerelease = releaseType === 'prerelease';
-            const version = isPrerelease 
-              ? `v${process.env.VERSION}-dev` 
-              : `v${process.env.VERSION}`;
+            // Prerelease always uses 'dev' tag, stable uses versioned tag
+            const tag = isPrerelease ? 'dev' : `v${process.env.VERSION}`;
             
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
@@ -342,12 +337,12 @@ jobs:
               client_payload: {
                 source_repo: 'amnweb/yasb-gui',
                 release_id: parseInt(process.env.RELEASE_ID),
-                release_tag: version,
+                release_tag: tag,
                 signing_policy: 'release-signing',
-                artifact_configuration: 'signing_installer',
-                files: [process.env.MSI_NAME],
+                artifact_configuration: 'signing_installer_msix',
+                files: [process.env.MSIX_NAME],
                 mode: 'release',
-                callback_stage: `msi-${process.env.SUFFIX}`,
+                callback_stage: `msix-${process.env.SUFFIX}`,
                 release_type: releaseType
               }
             });
@@ -356,7 +351,7 @@ jobs:
     if: >-
       github.event_name == 'repository_dispatch' && 
       github.event.client_payload.status == 'success' &&
-      startsWith(github.event.client_payload.stage, 'msi-')
+      startsWith(github.event.client_payload.stage, 'msix-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -367,7 +362,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if all MSIs are signed
+      - name: Check if all MSIXs are signed
         id: check
         uses: actions/github-script@v7
         env:
@@ -383,11 +378,11 @@ jobs:
               release_id: releaseId
             });
             
-            const msiFiles = release.assets.filter(a => a.name.endsWith('.msi'));
-            console.log(`Found ${msiFiles.length} MSI files in release`);
+            const msixFiles = release.assets.filter(a => a.name.endsWith('.msix'));
+            console.log(`Found ${msixFiles.length} MSIX files in release`);
             
-            // We expect 2 MSIs (x64 and aarch64)
-            const ready = msiFiles.length >= 2;
+            // We expect 2 MSIXs (x64 and arm64)
+            const ready = msixFiles.length >= 2;
             core.setOutput('ready', ready);
             core.setOutput('release_id', releaseId);
             core.setOutput('release_tag', release.tag_name);
@@ -416,7 +411,7 @@ jobs:
             fs.mkdirSync('dist', { recursive: true });
             let checksums = '';
             
-            for (const asset of release.assets.filter(a => a.name.endsWith('.msi'))) {
+            for (const asset of release.assets.filter(a => a.name.endsWith('.msix'))) {
               console.log(`Downloading ${asset.name} for checksum...`);
               
               const { data } = await github.rest.repos.getReleaseAsset({
@@ -433,7 +428,6 @@ jobs:
             
             fs.writeFileSync('dist/checksums.txt', checksums);
             
-            // Delete existing checksums.txt if present
             const existingChecksum = release.assets.find(a => a.name === 'checksums.txt');
             if (existingChecksum) {
               console.log('Deleting existing checksums.txt...');
@@ -444,7 +438,6 @@ jobs:
               });
             }
             
-            // Upload checksums
             await github.rest.repos.uploadReleaseAsset({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -490,7 +483,6 @@ jobs:
               body: changelog,
               draft: true
             });
-            
 
       - name: Cleanup artifacts
         if: always()

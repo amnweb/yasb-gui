@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from core.constants import (
+    APP_ID,
     APP_VERSION,
     GITHUB_REGISTRY,
     GITHUB_RELEASES_API,
@@ -362,7 +363,7 @@ class AppUpdater:
 
             # Find appropriate asset for current architecture
             arch = self._get_system_arch()
-            asset_name = f"yasb-gui-{latest_version}-{arch}.msi"
+            asset_name = f"yasb-gui-{latest_version}-{arch}.msix"
 
             download_url = None
             for asset in latest_release.get("assets", []):
@@ -430,31 +431,22 @@ class AppUpdater:
 
     def install_update(self, installer_path: str) -> Tuple[bool, str]:
         """
-        Install app update using MSI installer (silent mode).
-        Starts the installer and schedules app restart after installation.
+        Install app update using MSIX package.
         Returns (success, message).
         """
         try:
-            import sys
-
-            info(f"Installing update from: {installer_path}")
-
-            # Get current executable path
-            if getattr(sys, "frozen", False):
-                # Running as compiled executable
-                current_exe = sys.executable
-            else:
-                # Running as script - find pythonw.exe or python.exe
-                current_exe = sys.executable
-
-            info(f"Current executable: {current_exe}")
-
-            # Use PowerShell to run installer and restart app
-            # This runs detached and waits for installation before restarting
+            info(f"Installing update from {installer_path}")
+            self._save_metadata(check_time=False)
             ps_script = f"""
-Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '{installer_path}', '/quiet', '/qn', '/norestart' -Wait -NoNewWindow
-Start-Sleep -Seconds 2
-Start-Process -FilePath '{current_exe}'
+$ErrorActionPreference = 'Stop'
+try {{
+    Add-AppxPackage -Path '{installer_path}' -ForceApplicationShutdown
+    Start-Sleep -Seconds 2
+    Start-Process 'shell:AppsFolder\\{APP_ID}'
+}} catch {{
+    Write-Error $_.Exception.Message
+    exit 1
+}}
 """
 
             subprocess.Popen(
@@ -462,10 +454,7 @@ Start-Process -FilePath '{current_exe}'
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
-            # Clear update metadata after initiating install
-            self._save_metadata(check_time=False)
-
-            info("Update script started - app will restart after installation")
+            info("Update initiated - app will restart after installation")
             return True, "Installation started"
 
         except Exception as e:

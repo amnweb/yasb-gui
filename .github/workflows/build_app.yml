@@ -110,39 +110,100 @@ jobs:
             console.log(`Tag: ${tag}`);
             console.log(`Release type: ${releaseType}`);
             
-            // For prerelease: delete old dev release if exists
+            // For prerelease: delete old dev release and tag if exists
             if (isPrerelease) {
-              try {
-                const { data: existing } = await github.rest.repos.getReleaseByTag({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  tag: 'dev'
-                });
-                
+              const { data: releases } = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 10
+              });
+              
+              // Find release with dev tag (works for both draft and published)
+              const existing = releases.find(r => r.tag_name === 'dev');
+              
+              if (existing) {
                 console.log(`Deleting old dev release: ${existing.id} (${existing.name})`);
                 await github.rest.repos.deleteRelease({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   release_id: existing.id
                 });
-                
-                // Delete the tag
+              }
+              
+              // Delete the tag if it exists
+              try {
                 await github.rest.git.deleteRef({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   ref: 'tags/dev'
                 });
-                console.log('Deleted tag: dev');
+                console.log('Deleted old tag: dev');
               } catch (e) {
-                console.log('No existing dev release found');
+                console.log('No existing dev tag found');
+              }
+            } else {
+              // For stable: check if tag/release already exists (failed previous attempt)
+              const { data: releases } = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 20
+              });
+              
+              const existing = releases.find(r => r.tag_name === tag);
+              
+              if (existing) {
+                if (existing.draft) {
+                  // Safe to delete draft release from failed attempt
+                  console.log(`Deleting old draft release: ${existing.id} (${existing.name})`);
+                  await github.rest.repos.deleteRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: existing.id
+                  });
+                  
+                  // Delete the tag too
+                  try {
+                    await github.rest.git.deleteRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `tags/${tag}`
+                    });
+                    console.log(`Deleted old tag: ${tag}`);
+                  } catch (e) {
+                    console.log(`No existing ${tag} tag found`);
+                  }
+                } else {
+                  // Don't overwrite published stable releases
+                  throw new Error(`Stable release ${tag} already exists and is published! Bump the version in constants.py first.`);
+                }
               }
             }
             
-            // Create new release
+            // Get the current commit SHA
+            const { data: ref } = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${context.ref.replace('refs/heads/', '')}`
+            });
+            const sha = ref.object.sha;
+            console.log(`Current commit: ${sha}`);
+            
+            // Create the tag first
+            console.log(`Creating tag: ${tag}`);
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: sha
+            });
+            console.log(`Tag ${tag} created`);
+            
+            // Now create the release pointing to the tag
             const { data: release } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
+              target_commitish: sha,
               name: releaseName,
               body: '**Build in progress...**\n\nSigning MSIX installers...',
               draft: true,

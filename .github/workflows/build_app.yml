@@ -590,21 +590,28 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.check.outputs.release_tag }}
         run: |
-          # Find the latest stable version tag (v0.0.1, v0.0.2, etc.)
-          latestVersionTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1 || true)
-          
-          echo "Latest version tag: $latestVersionTag"
           echo "Current release tag: $RELEASE_TAG"
           
-          if [ -n "$latestVersionTag" ]; then
-            commits=$(git log "$latestVersionTag..HEAD" --pretty=format:"* %s %h" --no-merges)
+          # Find the latest stable version tag, excluding the current one if it's a stable release
+          if [ "$RELEASE_TAG" = "dev" ]; then
+            # For dev: find the latest stable tag
+            previousTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1 || true)
+          else
+            # For stable: find the previous stable tag (exclude current)
+            previousTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | grep -v "^${RELEASE_TAG}$" | head -n 1 || true)
+          fi
+          
+          echo "Previous tag: $previousTag"
+          
+          if [ -n "$previousTag" ]; then
+            commits=$(git log "$previousTag..HEAD" --pretty=format:"* %s %h" --no-merges)
           else
             commits=$(git log -n 20 --pretty=format:"* %s %h" --no-merges)
           fi
           
           if [ -z "$commits" ]; then
-            if [ -n "$latestVersionTag" ]; then
-              commits="* No significant changes detected since $latestVersionTag"
+            if [ -n "$previousTag" ]; then
+              commits="* No significant changes detected since $previousTag"
             else
               commits="* No significant changes detected"
             fi

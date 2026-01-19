@@ -587,20 +587,33 @@ jobs:
       - name: Generate changelog
         if: steps.check.outputs.ready == 'true'
         id: changelog
+        env:
+          RELEASE_TAG: ${{ steps.check.outputs.release_tag }}
         run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Find the latest stable version tag (v0.0.1, v0.0.2, etc.)
+          latestVersionTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1 || true)
           
-          if [ -z "$PREVIOUS_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" --no-merges)
+          echo "Latest version tag: $latestVersionTag"
+          echo "Current release tag: $RELEASE_TAG"
+          
+          if [ -n "$latestVersionTag" ]; then
+            commits=$(git log "$latestVersionTag..HEAD" --pretty=format:"* %s %h" --no-merges)
           else
-            COMMITS=$(git log "$PREVIOUS_TAG..HEAD" --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" --no-merges)
+            commits=$(git log -n 20 --pretty=format:"* %s %h" --no-merges)
           fi
           
-          echo "## What's Changed" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "$COMMITS" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "---" >> CHANGELOG.md
+          if [ -z "$commits" ]; then
+            if [ -n "$latestVersionTag" ]; then
+              commits="* No significant changes detected since $latestVersionTag"
+            else
+              commits="* No significant changes detected"
+            fi
+          fi
+          
+          printf '%s\n' "$commits" > CHANGELOG.md
+          
+          echo "Changelog content:"
+          cat CHANGELOG.md
 
       - name: Publish release
         if: steps.check.outputs.ready == 'true'

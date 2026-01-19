@@ -78,7 +78,6 @@ jobs:
       contents: write
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
-      version: ${{ steps.create.outputs.version }}
       tag: ${{ steps.create.outputs.tag }}
 
     steps:
@@ -164,19 +163,20 @@ jobs:
         env:
           ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-          VERSION: ${{ needs.create-release.outputs.version }}
           TAG: ${{ needs.create-release.outputs.tag }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const suffix = process.env.ARTIFACT_SUFFIX;
             const releaseId = parseInt(process.env.RELEASE_ID);
-            const version = process.env.VERSION;
             const tag = process.env.TAG;
+            const releaseType = process.env.RELEASE_TYPE;
             
             console.log(`Requesting EXE signing for ${suffix}...`);
-            console.log(`Release ID: ${releaseId}, Version: ${version}, Tag: ${tag}`);
+            console.log(`Release ID: ${releaseId}, Tag: ${tag}`);
             
+            // GitHub limits client_payload to 10 properties max
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
               repo: 'yasb',
@@ -191,10 +191,7 @@ jobs:
                 input_artifact_name: `unsigned-exe-${suffix}`,
                 output_artifact_name: `signed-exe-${suffix}`,
                 callback_stage: `exe-${suffix}`,
-                release_type: '${{ inputs.release_type }}',
-                release_id: releaseId,
-                version: version,
-                release_tag: tag
+                callback_data: JSON.stringify({ release_id: releaseId, release_tag: tag, release_type: releaseType })
               }
             });
 
@@ -329,28 +326,61 @@ jobs:
         id: release
         uses: actions/github-script@v7
         env:
-          RELEASE_ID: ${{ github.event.client_payload.release_id }}
-          RELEASE_TYPE: ${{ github.event.client_payload.release_type || 'stable' }}
-          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
-            const releaseId = parseInt(process.env.RELEASE_ID);
-            const releaseType = process.env.RELEASE_TYPE;
-            const releaseTag = process.env.RELEASE_TAG;
+            const version = process.env.VERSION;
             
-            console.log(`Using release ID: ${releaseId}`);
+            console.log(`Looking for release with version: ${version}`);
+            
+            // Try to find the release - could be 'dev' tag (prerelease) or 'v{version}' (stable)
+            let release;
+            let releaseTag;
+            
+            // First try 'dev' tag (prerelease)
+            try {
+              const { data: devRelease } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: 'dev'
+              });
+              // Check if this is a draft (our in-progress release)
+              if (devRelease.draft) {
+                release = devRelease;
+                releaseTag = 'dev';
+                console.log(`Found dev release: ${release.id}`);
+              }
+            } catch (e) {
+              console.log('No dev release found');
+            }
+            
+            // If not found, try versioned tag
+            if (!release) {
+              try {
+                const { data: versionedRelease } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: `v${version}`
+                });
+                release = versionedRelease;
+                releaseTag = `v${version}`;
+                console.log(`Found versioned release: ${release.id}`);
+              } catch (e) {
+                console.log('No versioned release found');
+              }
+            }
+            
+            if (!release) {
+              throw new Error(`No release found for version ${version}`);
+            }
+            
+            const releaseType = releaseTag === 'dev' ? 'prerelease' : 'stable';
+            
+            console.log(`Using release ID: ${release.id}`);
             console.log(`Release type: ${releaseType}`);
             console.log(`Release tag: ${releaseTag}`);
-            
-            // Get current release to check existing assets
-            const { data: release } = await github.rest.repos.getRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId
-            });
-            
             console.log(`Release: ${release.name}`);
             
             const msixFiles = fs.readdirSync('msix').filter(f => f.endsWith('.msix'));
@@ -371,14 +401,14 @@ jobs:
               await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                release_id: releaseId,
+                release_id: release.id,
                 name: msix,
                 data: data
               });
               console.log(`Uploaded: ${msix}`);
             }
             
-            core.setOutput('release_id', releaseId);
+            core.setOutput('release_id', release.id);
             core.setOutput('release_type', releaseType);
             core.setOutput('release_tag', releaseTag);
 
@@ -433,21 +463,57 @@ jobs:
       - name: Check if all MSIXs are signed
         id: check
         uses: actions/github-script@v7
-        env:
-          RELEASE_ID: ${{ github.event.client_payload.release_id }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
-            const releaseId = parseInt(process.env.RELEASE_ID);
-            console.log(`Checking release ID: ${releaseId}`);
+            const fs = require('fs');
             
-            const { data: release } = await github.rest.repos.getRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId
-            });
+            // Read version from constants.py
+            const content = fs.readFileSync('app/core/constants.py', 'utf8');
+            const match = content.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+            const version = match ? match[1] : '0.0.0';
             
-            console.log(`Release: ${release.name} (${release.tag_name})`);
+            console.log(`Looking for release with version: ${version}`);
+            
+            // Try to find the release - could be 'dev' tag or 'v{version}'
+            let release;
+            let releaseTag;
+            
+            try {
+              const { data: devRelease } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: 'dev'
+              });
+              if (devRelease.draft) {
+                release = devRelease;
+                releaseTag = 'dev';
+                console.log(`Found dev release: ${release.id}`);
+              }
+            } catch (e) {
+              console.log('No dev release found');
+            }
+            
+            if (!release) {
+              try {
+                const { data: versionedRelease } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: `v${version}`
+                });
+                release = versionedRelease;
+                releaseTag = `v${version}`;
+                console.log(`Found versioned release: ${release.id}`);
+              } catch (e) {
+                console.log('No versioned release found');
+              }
+            }
+            
+            if (!release) {
+              throw new Error(`No release found for version ${version}`);
+            }
+            
+            console.log(`Release: ${release.name} (${releaseTag})`);
             console.log(`Total assets: ${release.assets.length}`);
             release.assets.forEach(a => console.log(`  - ${a.name} (${a.size} bytes)`));
             
@@ -460,8 +526,8 @@ jobs:
             console.log(`Ready to finalize: ${ready}`);
             
             core.setOutput('ready', ready);
-            core.setOutput('release_id', releaseId);
-            core.setOutput('release_tag', release.tag_name);
+            core.setOutput('release_id', release.id);
+            core.setOutput('release_tag', releaseTag);
             
             return ready;
 

@@ -18,7 +18,7 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 
 # Add app directory to path for imports
 sys.path.insert(0, str(APP_DIR))
-from core.constants import APP_VERSION
+from core.constants import APP_ID, APP_VERSION
 
 
 def find_makeappx() -> str | None:
@@ -168,7 +168,7 @@ def build_msix(
 
     # Create MSIX
     output_dir.mkdir(parents=True, exist_ok=True)
-    msix_path = output_dir / f"yasb-gui-{APP_VERSION}-{arch}.msix"
+    msix_path = output_dir / f"YASB.GUI_{APP_VERSION}_{arch}.msix"
 
     makeappx = find_makeappx()
     if not makeappx:
@@ -177,6 +177,36 @@ def build_msix(
     subprocess.run([makeappx, "pack", "/d", str(layout_dir), "/p", str(msix_path), "/o"], check=True)
 
     return msix_path
+
+
+def build_msixbundle(msix_files: list[Path], output_dir: Path) -> Path:
+    """Build MSIX bundle from multiple MSIX packages."""
+    makeappx = find_makeappx()
+    if not makeappx:
+        raise RuntimeError("makeappx.exe not found. Install Windows SDK.")
+
+    bundle_dir = output_dir / "bundle_input"
+    if bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy all MSIX files to bundle input directory
+    for msix in msix_files:
+        shutil.copy2(msix, bundle_dir / msix.name)
+
+    # Extract publisher ID from APP_ID (e.g., "YASB.GUI_wbnnev551gwxy" -> "wbnnev551gwxy")
+    publisher_id = APP_ID.split("_")[1]
+    bundle_path = output_dir / f"YASB.GUI_{APP_VERSION}_{publisher_id}.msixbundle"
+
+    subprocess.run(
+        [makeappx, "bundle", "/d", str(bundle_dir), "/p", str(bundle_path), "/o"],
+        check=True,
+    )
+
+    # Cleanup bundle input directory
+    shutil.rmtree(bundle_dir)
+
+    return bundle_path
 
 
 def main() -> None:
@@ -194,22 +224,41 @@ def main() -> None:
     parser.add_argument("--display-name", default="YASB GUI", help="Application display name")
     parser.add_argument("--description", default="YASB Reborn GUI", help="Application description")
     parser.add_argument("--executable", default="ygui.exe", help="Main executable name")
+    parser.add_argument("--bundle", action="store_true", help="Create MSIX bundle from existing MSIX files")
+    parser.add_argument(
+        "--msix-files",
+        nargs="*",
+        help="MSIX files to bundle (used with --bundle). If not specified, looks for *.msix in output dir",
+    )
 
     args = parser.parse_args()
 
-    msix_path = build_msix(
-        dist_dir=Path(args.dist),
-        output_dir=Path(args.output),
-        identity_name=args.identity_name,
-        publisher=args.publisher,
-        publisher_display_name=args.publisher_display_name,
-        display_name=args.display_name,
-        description=args.description,
-        executable=args.executable,
-        arch=args.arch,
-    )
+    if args.bundle:
+        output_dir = Path(args.output)
+        if args.msix_files:
+            msix_files = [Path(f) for f in args.msix_files]
+        else:
+            msix_files = list(output_dir.glob("*.msix"))
 
-    print(f"MSIX created at: {msix_path}")
+        if len(msix_files) < 1:
+            print("Error: No MSIX files found to bundle")
+            sys.exit(1)
+
+        bundle_path = build_msixbundle(msix_files, output_dir)
+        print(f"MSIX Bundle created at: {bundle_path}")
+    else:
+        msix_path = build_msix(
+            dist_dir=Path(args.dist),
+            output_dir=Path(args.output),
+            identity_name=args.identity_name,
+            publisher=args.publisher,
+            publisher_display_name=args.publisher_display_name,
+            display_name=args.display_name,
+            description=args.description,
+            executable=args.executable,
+            arch=args.arch,
+        )
+        print(f"MSIX created at: {msix_path}")
 
 
 if __name__ == "__main__":

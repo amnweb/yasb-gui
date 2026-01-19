@@ -2,15 +2,6 @@ name: Build and Release
 
 on:
   workflow_dispatch:
-    inputs:
-      release_type:
-        description: 'Release type'
-        required: true
-        default: 'prerelease'
-        type: choice
-        options:
-          - prerelease
-          - stable
   repository_dispatch:
     types: [signing-complete]
 
@@ -19,9 +10,13 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.14'
+  APP_ID: 'YASB.GUI_wbnnev551gwxy'
 
 jobs:
-  build-exe:
+  # ===========================================
+  # PHASE 1: Build (triggered by workflow_dispatch)
+  # ===========================================
+  build:
     if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
@@ -32,14 +27,12 @@ jobs:
         include:
           - arch: x64
             runner: windows-latest
-            artifact_suffix: x64
+            suffix: x64
           - arch: arm64
             runner: windows-11-arm
-            artifact_suffix: aarch64
+            suffix: aarch64
 
     runs-on: ${{ matrix.runner }}
-    outputs:
-      run_id: ${{ github.run_id }}
 
     steps:
       - name: Checkout Repository
@@ -58,20 +51,20 @@ jobs:
           pip install .[build] --no-cache
         shell: pwsh
 
-      - name: Build EXE
+      - name: Build application
         run: |
           .\venv\Scripts\Activate
           python app/scripts/build.py build
         shell: pwsh
 
-      - name: Upload unsigned EXE
+      - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-exe-${{ matrix.artifact_suffix }}
-          path: dist/ygui.exe
+          name: dist-${{ matrix.suffix }}
+          path: dist/
 
   create-release:
-    needs: build-exe
+    needs: build
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -79,6 +72,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
       tag: ${{ steps.create.outputs.tag }}
+      version: ${{ steps.create.outputs.version }}
 
     steps:
       - name: Checkout Repository
@@ -87,160 +81,95 @@ jobs:
       - name: Create draft release
         id: create
         uses: actions/github-script@v7
-        env:
-          RELEASE_TYPE: ${{ inputs.release_type }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
-            const releaseType = process.env.RELEASE_TYPE;
-            const isPrerelease = releaseType === 'prerelease';
             
-            // Read version from constants.py
             const content = fs.readFileSync('app/core/constants.py', 'utf8');
             const match = content.match(/APP_VERSION\s*=\s*"([^"]+)"/);
             const version = match ? match[1] : '0.0.0';
             
-            const tag = isPrerelease ? 'dev' : `v${version}`;
-            const releaseName = isPrerelease 
-              ? `YASB GUI Dev Build (${version})` 
-              : `YASB GUI v${version}`;
+            const tag = `v${version}`;
+            const releaseName = `YASB GUI v${version}`;
             
-            console.log(`Version: ${version}`);
-            console.log(`Tag: ${tag}`);
-            console.log(`Release type: ${releaseType}`);
+            console.log(`Version: ${version}, Tag: ${tag}`);
             
-            // For prerelease: delete old dev release and tag if exists
-            if (isPrerelease) {
-              const { data: releases } = await github.rest.repos.listReleases({
+            // Delete existing draft release/tag if needed
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 20
+            });
+            
+            const existing = releases.find(r => r.tag_name === tag);
+            if (existing) {
+              if (!existing.draft) {
+                throw new Error(`Release ${tag} already published! Bump version first.`);
+              }
+              await github.rest.repos.deleteRelease({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                per_page: 10
+                release_id: existing.id
               });
-              
-              // Find release with dev tag (works for both draft and published)
-              const existing = releases.find(r => r.tag_name === 'dev');
-              
-              if (existing) {
-                console.log(`Deleting old dev release: ${existing.id} (${existing.name})`);
-                await github.rest.repos.deleteRelease({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  release_id: existing.id
-                });
-              }
-              
-              // Delete the tag if it exists
-              try {
-                await github.rest.git.deleteRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: 'tags/dev'
-                });
-                console.log('Deleted old tag: dev');
-              } catch (e) {
-                console.log('No existing dev tag found');
-              }
-            } else {
-              // For stable: check if tag/release already exists (failed previous attempt)
-              const { data: releases } = await github.rest.repos.listReleases({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 20
-              });
-              
-              const existing = releases.find(r => r.tag_name === tag);
-              
-              if (existing) {
-                if (existing.draft) {
-                  // Safe to delete draft release from failed attempt
-                  console.log(`Deleting old draft release: ${existing.id} (${existing.name})`);
-                  await github.rest.repos.deleteRelease({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    release_id: existing.id
-                  });
-                  
-                  // Delete the tag too
-                  try {
-                    await github.rest.git.deleteRef({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      ref: `tags/${tag}`
-                    });
-                    console.log(`Deleted old tag: ${tag}`);
-                  } catch (e) {
-                    console.log(`No existing ${tag} tag found`);
-                  }
-                } else {
-                  // Don't overwrite published stable releases
-                  throw new Error(`Stable release ${tag} already exists and is published! Bump the version in constants.py first.`);
-                }
-              }
             }
             
-            // Get the current commit SHA
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`
+              });
+            } catch (e) { }
+            
             const { data: ref } = await github.rest.git.getRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: `heads/${context.ref.replace('refs/heads/', '')}`
             });
-            const sha = ref.object.sha;
-            console.log(`Current commit: ${sha}`);
             
-            // Create the tag first
-            console.log(`Creating tag: ${tag}`);
             await github.rest.git.createRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: `refs/tags/${tag}`,
-              sha: sha
+              sha: ref.object.sha
             });
-            console.log(`Tag ${tag} created`);
             
-            // Now create the release pointing to the tag
             const { data: release } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
-              target_commitish: sha,
               name: releaseName,
-              body: '**Build in progress...**\n\nSigning MSIX installers...',
-              draft: true,
-              prerelease: isPrerelease
+              body: '**Build in progress...**\n\nSigning packages...',
+              draft: true
             });
-            
-            console.log(`Created new release: ${release.id}`);
             
             core.setOutput('release_id', release.id);
             core.setOutput('tag', tag);
+            core.setOutput('version', version);
 
-  request-exe-signing:
-    needs: [build-exe, create-release]
+  request-signing:
+    needs: [build, create-release]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - artifact_suffix: x64
-          - artifact_suffix: aarch64
+        suffix: [x64, aarch64]
 
     steps:
-      - name: Trigger EXE signing on yasb
+      - name: Request EXE signing
         uses: actions/github-script@v7
         env:
-          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          SUFFIX: ${{ matrix.suffix }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          RELEASE_TAG: ${{ needs.create-release.outputs.tag }}
+          VERSION: ${{ needs.create-release.outputs.version }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
-            const suffix = process.env.ARTIFACT_SUFFIX;
-            const releaseId = parseInt(process.env.RELEASE_ID);
+            const suffix = process.env.SUFFIX;
+            console.log(`Requesting signing for ${suffix}...`);
             
-            console.log(`Requesting EXE signing for ${suffix}...`);
-            console.log(`Release ID: ${releaseId}`);
-            
-            // GitHub limits client_payload to 10 properties - this is exactly 10
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
               repo: 'yasb',
@@ -252,60 +181,69 @@ jobs:
                 artifact_configuration: 'release-signing-gui',
                 files: ['ygui.exe'],
                 mode: 'artifact',
-                input_artifact_name: `unsigned-exe-${suffix}`,
-                output_artifact_name: `signed-exe-${suffix}`,
+                input_artifact_name: `dist-${suffix}`,
+                output_artifact_name: `signed-dist-${suffix}`,
                 callback_stage: `exe-${suffix}`,
-                release_id: releaseId
+                release_id: parseInt(process.env.RELEASE_ID),
+                release_tag: process.env.RELEASE_TAG,
+                version: process.env.VERSION
               }
             });
 
-  build-msix:
+  # ===========================================
+  # PHASE 2: Package signed EXE (triggered by SignPath callback)
+  # ===========================================
+  package-signed:
     if: >-
       github.event_name == 'repository_dispatch' && 
       github.event.client_payload.status == 'success' &&
       startsWith(github.event.client_payload.stage, 'exe-')
-    runs-on: ${{ contains(github.event.client_payload.stage, 'x64') && 'windows-latest' || 'windows-11-arm' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Determine architecture and version
+        id: info
+        uses: actions/github-script@v7
+        env:
+          STAGE: ${{ github.event.client_payload.stage }}
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const stage = process.env.STAGE;
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            
+            // Get release to extract tag
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            const version = release.tag_name.replace(/^v/, '');
+            const suffix = stage === 'exe-x64' ? 'x64' : 'aarch64';
+            
+            core.setOutput('VERSION', version);
+            core.setOutput('SUFFIX', suffix);
+            core.setOutput('RELEASE_TAG', release.tag_name);
+            
+            console.log(`Version: ${version}, Suffix: ${suffix}, Tag: ${release.tag_name}`);
 
-      - name: Determine architecture
-        id: arch
-        run: |
-          $stage = '${{ github.event.client_payload.stage }}'
-          if ($stage -match 'x64') {
-            echo "SUFFIX=x64" >> $env:GITHUB_OUTPUT
-            echo "MSIX_ARCH=x64" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "SUFFIX=aarch64" >> $env:GITHUB_OUTPUT
-            echo "MSIX_ARCH=aarch64" >> $env:GITHUB_OUTPUT
-          }
-        shell: pwsh
-
-      - name: Download signed EXE from yasb
+      - name: Download signed dist from yasb
         uses: actions/github-script@v7
         env:
           YASB_RUN_ID: ${{ github.event.client_payload.yasb_run_id }}
-          OUTPUT_ARTIFACT: ${{ github.event.client_payload.output_artifact_name }}
+          SUFFIX: ${{ steps.info.outputs.SUFFIX }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
             const { execSync } = require('child_process');
-            
+            const suffix = process.env.SUFFIX;
             const runId = parseInt(process.env.YASB_RUN_ID);
-            const artifactName = process.env.OUTPUT_ARTIFACT;
-            
-            console.log(`Downloading ${artifactName} from yasb run ${runId}`);
             
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
               owner: 'amnweb',
@@ -313,10 +251,8 @@ jobs:
               run_id: runId
             });
             
-            const artifact = artifacts.artifacts.find(a => a.name === artifactName);
-            if (!artifact) {
-              throw new Error(`Artifact ${artifactName} not found in yasb run`);
-            }
+            const artifact = artifacts.artifacts.find(a => a.name === `signed-dist-${suffix}`);
+            if (!artifact) throw new Error(`Artifact signed-dist-${suffix} not found`);
             
             const { data: download } = await github.rest.actions.downloadArtifact({
               owner: 'amnweb',
@@ -325,13 +261,174 @@ jobs:
               archive_format: 'zip'
             });
             
-            fs.mkdirSync('signed-exe', { recursive: true });
+            fs.mkdirSync('signed-dist', { recursive: true });
             fs.writeFileSync('signed.zip', Buffer.from(download));
-            execSync('powershell -Command "Expand-Archive -Path signed.zip -DestinationPath signed-exe -Force"');
+            execSync('unzip -o signed.zip -d signed-dist');
+
+      - name: Create portable package
+        env:
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          SUFFIX: ${{ steps.info.outputs.SUFFIX }}
+        run: |
+          cd signed-dist
+          zip -r "../YASB.GUI_${VERSION}_${SUFFIX}.zip" .
+          ls -la ../
+
+      - name: Upload portable to release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          SUFFIX: ${{ steps.info.outputs.SUFFIX }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            const version = process.env.VERSION;
+            const suffix = process.env.SUFFIX;
+            const filename = `YASB.GUI_${version}_${suffix}.zip`;
             
-            console.log('Signed EXE downloaded');
-            const files = fs.readdirSync('signed-exe');
-            console.log('Files:', files);
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            const existing = release.assets.find(a => a.name === filename);
+            if (existing) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: existing.id
+              });
+            }
+            
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              name: filename,
+              data: fs.readFileSync(filename)
+            });
+            
+            console.log(`Uploaded: ${filename}`);
+
+      - name: Check if ready for bundle
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
+          RELEASE_TAG: ${{ steps.info.outputs.RELEASE_TAG }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            const portables = release.assets.filter(a => a.name.startsWith('YASB.GUI_') && a.name.endsWith('.zip'));
+            console.log(`Portable packages uploaded: ${portables.length}/2`);
+            portables.forEach(a => console.log(`  - ${a.name}`));
+            
+            if (portables.length >= 2) {
+              console.log('Both portables ready, triggering bundle build...');
+              
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'signing-complete',
+                client_payload: {
+                  status: 'success',
+                  stage: 'portables-ready',
+                  release_id: releaseId,
+                  release_tag: process.env.RELEASE_TAG,
+                  version: process.env.VERSION
+                }
+              });
+            }
+
+  # ===========================================
+  # PHASE 3: Build bundle (triggered when both portables ready)
+  # ===========================================
+  build-bundle:
+    if: >-
+      github.event_name == 'repository_dispatch' && 
+      github.event.client_payload.status == 'success' &&
+      github.event.client_payload.stage == 'portables-ready'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Extract version from tag
+        id: info
+        run: |
+          $tag = "${{ github.event.client_payload.release_tag }}"
+          $version = $tag -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+        shell: pwsh
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download portable packages from release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            const version = process.env.VERSION;
+            
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+            
+            fs.mkdirSync('signed-dists', { recursive: true });
+            
+            for (const suffix of ['x64', 'aarch64']) {
+              const filename = `YASB.GUI_${version}_${suffix}.zip`;
+              const asset = release.assets.find(a => a.name === filename);
+              if (!asset) throw new Error(`Asset ${filename} not found`);
+              
+              console.log(`Downloading ${filename}...`);
+              
+              const { url } = await github.rest.repos.getReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+                headers: { accept: 'application/octet-stream' }
+              });
+              
+              const response = await fetch(url);
+              const buffer = Buffer.from(await response.arrayBuffer());
+              fs.writeFileSync(filename, buffer);
+              
+              // Extract to signed-dists/signed-dist-{suffix}
+              const extractDir = `signed-dists/signed-dist-${suffix}`;
+              fs.mkdirSync(extractDir, { recursive: true });
+              execSync(`powershell -Command "Expand-Archive -Path '${filename}' -DestinationPath '${extractDir}' -Force"`);
+              
+              console.log(`Extracted to ${extractDir}`);
+            }
 
       - name: Install dependencies
         run: |
@@ -341,121 +438,111 @@ jobs:
           pip install .[build] --no-cache
         shell: pwsh
 
-      - name: Build EXE (to get full dist structure)
+      - name: Build MSIX for x64
         run: |
           .\venv\Scripts\Activate
-          python app/scripts/build.py build
+          
+          # Copy signed dist to expected location
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+          Copy-Item -Recurse signed-dists/signed-dist-x64 dist
+          
+          # Build MSIX
+          python app/scripts/build_msix.py --arch x64
+          
+          # Move to temp location
+          New-Item -ItemType Directory -Path msix-all -Force
+          Move-Item msix/*.msix msix-all/
         shell: pwsh
 
-      - name: Replace unsigned EXE with signed
-        run: |
-          Write-Host "Replacing unsigned EXE with signed version..."
-          Copy-Item -Path "signed-exe/ygui.exe" -Destination "dist/ygui.exe" -Force
-          Write-Host "Signed EXE in place"
-          Get-ChildItem dist/*.exe | ForEach-Object { 
-            Write-Host "  $($_.Name) - $([math]::Round($_.Length/1MB, 2)) MB"
-          }
-        shell: pwsh
-
-      - name: Build MSIX with signed EXE
+      - name: Build MSIX for arm64
         run: |
           .\venv\Scripts\Activate
-          python app/scripts/build_msix.py --arch ${{ steps.arch.outputs.MSIX_ARCH }}
+          
+          # Copy signed dist
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+          Copy-Item -Recurse signed-dists/signed-dist-aarch64 dist
+          
+          # Build MSIX
+          python app/scripts/build_msix.py --arch aarch64
+          
+          # Move to combined location
+          Move-Item msix/*.msix msix-all/
         shell: pwsh
 
-      - name: Get version and MSIX filename
-        id: info
+      - name: Create MSIX bundle
         run: |
-          $content = Get-Content -Path "app/core/constants.py" -Raw
-          $version = [regex]::Match($content, 'APP_VERSION\s*=\s*"([^"]+)"').Groups[1].Value
-          $suffix = "${{ steps.arch.outputs.SUFFIX }}"
-          $msixArch = "${{ steps.arch.outputs.MSIX_ARCH }}"
-          $msixName = "yasb-gui-${version}-${msixArch}.msix"
+          .\venv\Scripts\Activate
           
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-          echo "MSIX_NAME=$msixName" >> $env:GITHUB_OUTPUT
-          echo "SUFFIX=$suffix" >> $env:GITHUB_OUTPUT
+          # Move MSIXs to expected location
+          if (Test-Path msix) { Remove-Item -Recurse -Force msix }
+          Rename-Item msix-all msix
           
-          Write-Host "Version: $version"
-          Write-Host "MSIX: $msixName"
+          # Create bundle
+          $msixFiles = Get-ChildItem msix/*.msix | ForEach-Object { $_.FullName }
+          python app/scripts/build_msix.py --bundle --msix-files $msixFiles
+          
+          Write-Host "Bundle created:"
+          Get-ChildItem msix/*.msixbundle
         shell: pwsh
 
-      - name: Upload unsigned MSIX
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-msix-${{ steps.arch.outputs.SUFFIX }}
-          path: msix/*.msix
-
-      - name: Upload MSIX to release
-        id: release
+      - name: Upload bundle to release
         uses: actions/github-script@v7
         env:
           RELEASE_ID: ${{ github.event.client_payload.release_id }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          APP_ID: ${{ env.APP_ID }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
             const releaseId = parseInt(process.env.RELEASE_ID);
+            const version = process.env.VERSION;
+            const appId = process.env.APP_ID;
+            const publisherId = appId.split('_')[1];
+            const bundleName = `YASB.GUI_${version}_${publisherId}.msixbundle`;
             
-            console.log(`Using release ID: ${releaseId}`);
-            
-            // Get the release by ID
             const { data: release } = await github.rest.repos.getRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: releaseId
             });
             
-            const releaseTag = release.tag_name;
-            const releaseType = releaseTag === 'dev' ? 'prerelease' : 'stable';
-            
-            console.log(`Release: ${release.name} (${releaseTag})`);
-            console.log(`Release type: ${releaseType}`);
-            
-            const msixFiles = fs.readdirSync('msix').filter(f => f.endsWith('.msix'));
-            for (const msix of msixFiles) {
-              const data = fs.readFileSync(`msix/${msix}`);
-              console.log(`Uploading ${msix}...`);
-              
-              const existingAsset = release.assets?.find(a => a.name === msix);
-              if (existingAsset) {
-                console.log(`Deleting existing asset: ${msix}`);
-                await github.rest.repos.deleteReleaseAsset({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  asset_id: existingAsset.id
-                });
-              }
-              
-              await github.rest.repos.uploadReleaseAsset({
+            const existing = release.assets.find(a => a.name === bundleName);
+            if (existing) {
+              await github.rest.repos.deleteReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                release_id: releaseId,
-                name: msix,
-                data: data
+                asset_id: existing.id
               });
-              console.log(`Uploaded: ${msix}`);
             }
             
-            core.setOutput('release_id', releaseId);
-            core.setOutput('release_type', releaseType);
-            core.setOutput('release_tag', releaseTag);
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              name: bundleName,
+              data: fs.readFileSync(`msix/${bundleName}`)
+            });
+            
+            console.log(`Uploaded: ${bundleName}`);
 
-      - name: Trigger MSIX signing on yasb
+      - name: Request bundle signing
         uses: actions/github-script@v7
         env:
-          RELEASE_ID: ${{ steps.release.outputs.release_id }}
-          MSIX_NAME: ${{ steps.info.outputs.MSIX_NAME }}
-          SUFFIX: ${{ steps.info.outputs.SUFFIX }}
-          RELEASE_TYPE: ${{ steps.release.outputs.release_type }}
-          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          VERSION: ${{ steps.info.outputs.VERSION }}
+          APP_ID: ${{ env.APP_ID }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
-            console.log('Requesting MSIX signing...');
-            console.log(`Release ID: ${process.env.RELEASE_ID}`);
-            console.log(`Release tag: ${process.env.RELEASE_TAG}`);
-            console.log(`MSIX: ${process.env.MSIX_NAME}`);
+            const version = process.env.VERSION;
+            const releaseTag = process.env.RELEASE_TAG;
+            const appId = process.env.APP_ID;
+            const publisherId = appId.split('_')[1];
+            const bundleName = `YASB.GUI_${version}_${publisherId}.msixbundle`;
+            
+            console.log(`Requesting bundle signing: ${bundleName}`);
             
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
@@ -464,21 +551,24 @@ jobs:
               client_payload: {
                 source_repo: 'amnweb/yasb-gui',
                 release_id: parseInt(process.env.RELEASE_ID),
-                release_tag: process.env.RELEASE_TAG,
+                release_tag: releaseTag,
                 signing_policy: 'release-signing',
                 artifact_configuration: 'signing_installer_msix',
-                files: [process.env.MSIX_NAME],
+                files: [bundleName],
                 mode: 'release',
-                callback_stage: `msix-${process.env.SUFFIX}`,
-                release_type: process.env.RELEASE_TYPE
+                callback_stage: 'bundle',
+                version: version
               }
             });
 
-  finalize-release:
+  # ===========================================
+  # PHASE 4: Publish release (triggered after bundle signed)
+  # ===========================================
+  publish-release:
     if: >-
       github.event_name == 'repository_dispatch' && 
       github.event.client_payload.status == 'success' &&
-      startsWith(github.event.client_payload.stage, 'msix-')
+      github.event.client_payload.stage == 'bundle'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -489,56 +579,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if all MSIXs are signed
-        id: check
+      - name: Generate changelog
+        env:
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+        run: |
+          # Find previous stable tag (exclude current)
+          previousTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | grep -v "^${RELEASE_TAG}$" | head -n 1 || true)
+          
+          if [ -n "$previousTag" ]; then
+            commits=$(git log "$previousTag..HEAD" --pretty=format:"* %s %h" --no-merges)
+          else
+            commits=$(git log -n 20 --pretty=format:"* %s %h" --no-merges)
+          fi
+          
+          [ -z "$commits" ] && commits="* No significant changes"
+          printf '%s\n' "$commits" > CHANGELOG.md
+
+      - name: Generate checksums and publish
         uses: actions/github-script@v7
         env:
           RELEASE_ID: ${{ github.event.client_payload.release_id }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
-            const releaseId = parseInt(process.env.RELEASE_ID);
-            
-            console.log(`Checking release ID: ${releaseId}`);
-            
-            const { data: release } = await github.rest.repos.getRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId
-            });
-            
-            const releaseTag = release.tag_name;
-            
-            console.log(`Release: ${release.name} (${releaseTag})`);
-            console.log(`Total assets: ${release.assets.length}`);
-            release.assets.forEach(a => console.log(`  - ${a.name} (${a.size} bytes)`));
-            
-            const msixFiles = release.assets.filter(a => a.name.endsWith('.msix'));
-            console.log(`Found ${msixFiles.length} MSIX files in release`);
-            msixFiles.forEach(a => console.log(`  MSIX: ${a.name}`));
-            
-            // We expect 2 MSIXs (x64 and aarch64)
-            const ready = msixFiles.length >= 2;
-            console.log(`Ready to finalize: ${ready}`);
-            
-            core.setOutput('ready', ready);
-            core.setOutput('release_id', releaseId);
-            core.setOutput('release_tag', releaseTag);
-            
-            return ready;
-
-      - name: Generate checksums
-        if: steps.check.outputs.ready == 'true'
-        uses: actions/github-script@v7
-        env:
-          RELEASE_ID: ${{ steps.check.outputs.release_id }}
-        with:
-          github-token: ${{ secrets.YGUI_TOKEN }}
-          script: |
             const fs = require('fs');
             const crypto = require('crypto');
-            
             const releaseId = parseInt(process.env.RELEASE_ID);
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
             
             const { data: release } = await github.rest.repos.getRelease({
               owner: context.repo.owner,
@@ -546,11 +613,12 @@ jobs:
               release_id: releaseId
             });
             
-            fs.mkdirSync('dist', { recursive: true });
+            // Generate checksums for all assets
             let checksums = '';
-            
-            for (const asset of release.assets.filter(a => a.name.endsWith('.msix'))) {
-              console.log(`Downloading ${asset.name} for checksum...`);
+            for (const asset of release.assets.filter(a => 
+              a.name.endsWith('.msixbundle') || (a.name.startsWith('YASB.GUI_') && a.name.endsWith('.zip'))
+            )) {
+              console.log(`Generating checksum for ${asset.name}...`);
               
               const { data } = await github.rest.repos.getReleaseAsset({
                 owner: context.repo.owner,
@@ -561,14 +629,11 @@ jobs:
               
               const hash = crypto.createHash('sha256').update(Buffer.from(data)).digest('hex');
               checksums += `${hash}  ${asset.name}\n`;
-              console.log(`${asset.name}: ${hash}`);
             }
             
-            fs.writeFileSync('dist/checksums.txt', checksums);
-            
+            // Upload checksums
             const existingChecksum = release.assets.find(a => a.name === 'checksums.txt');
             if (existingChecksum) {
-              console.log('Deleting existing checksums.txt...');
               await github.rest.repos.deleteReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -581,59 +646,10 @@ jobs:
               repo: context.repo.repo,
               release_id: releaseId,
               name: 'checksums.txt',
-              data: fs.readFileSync('dist/checksums.txt')
+              data: Buffer.from(checksums)
             });
-
-      - name: Generate changelog
-        if: steps.check.outputs.ready == 'true'
-        id: changelog
-        env:
-          RELEASE_TAG: ${{ steps.check.outputs.release_tag }}
-        run: |
-          echo "Current release tag: $RELEASE_TAG"
-          
-          # Find the latest stable version tag, excluding the current one if it's a stable release
-          if [ "$RELEASE_TAG" = "dev" ]; then
-            # For dev: find the latest stable tag
-            previousTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | head -n 1 || true)
-          else
-            # For stable: find the previous stable tag (exclude current)
-            previousTag=$(git tag -l --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+" | grep -v "^${RELEASE_TAG}$" | head -n 1 || true)
-          fi
-          
-          echo "Previous tag: $previousTag"
-          
-          if [ -n "$previousTag" ]; then
-            commits=$(git log "$previousTag..HEAD" --pretty=format:"* %s %h" --no-merges)
-          else
-            commits=$(git log -n 20 --pretty=format:"* %s %h" --no-merges)
-          fi
-          
-          if [ -z "$commits" ]; then
-            if [ -n "$previousTag" ]; then
-              commits="* No significant changes detected since $previousTag"
-            else
-              commits="* No significant changes detected"
-            fi
-          fi
-          
-          printf '%s\n' "$commits" > CHANGELOG.md
-          
-          echo "Changelog content:"
-          cat CHANGELOG.md
-
-      - name: Publish release
-        if: steps.check.outputs.ready == 'true'
-        uses: actions/github-script@v7
-        env:
-          RELEASE_ID: ${{ steps.check.outputs.release_id }}
-        with:
-          github-token: ${{ secrets.YGUI_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const releaseId = parseInt(process.env.RELEASE_ID);
-            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
             
+            // Update release with changelog (keep as draft for manual publish)
             await github.rest.repos.updateRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -641,16 +657,19 @@ jobs:
               body: changelog,
               draft: true
             });
+            
+            console.log('Release ready for publishing!');
 
       - name: Cleanup artifacts
         if: always()
         uses: geekyeggo/delete-artifact@v5
         with:
-          name: |
-            unsigned-*
-            signed-*
+          name: dist-*
           failOnError: false
 
+  # ===========================================
+  # Handle signing failures
+  # ===========================================
   handle-failure:
     if: >-
       github.event_name == 'repository_dispatch' && 
@@ -660,6 +679,6 @@ jobs:
     steps:
       - name: Report failure
         run: |
-          echo "Signing failed at stage: ${{ github.event.client_payload.stage }}"
+          echo "::error::Signing failed at stage: ${{ github.event.client_payload.stage }}"
           echo "Check: ${{ github.event.client_payload.run_url }}"
           exit 1

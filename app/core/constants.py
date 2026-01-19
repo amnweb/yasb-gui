@@ -18,8 +18,8 @@ GITHUB_RELEASES_API = "https://api.github.com/repos/amnweb/yasb-gui/releases"
 # Update settings
 UPDATE_CHECK_INTERVAL_MINUTES = 60
 
-# App ID package identity (Package Family Name + App ID)
-APP_ID = "YASB.GUI_wbnnev551gwxy!App"
+# App ID package identity
+APP_ID = "YASB.GUI_wbnnev551gwxy"
 
 # Application paths
 IS_EXECUTABLE = bool(getattr(sys, "frozen", False))

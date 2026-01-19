@@ -361,19 +361,19 @@ class AppUpdater:
                 self._save_metadata(check_time=True)
                 return True, "You are on the latest version", None, None
 
-            # Find appropriate asset for current architecture
-            arch = self._get_system_arch()
-            asset_name = f"yasb-gui-{latest_version}-{arch}.msix"
+            # Find msixbundle asset (extract publisher ID from APP_ID)
+            publisher_id = APP_ID.split("_")[1]
+            bundle_name = f"YASB.GUI_{latest_version}_{publisher_id}.msixbundle"
 
             download_url = None
             for asset in latest_release.get("assets", []):
-                if asset.get("name") == asset_name:
+                if asset.get("name") == bundle_name:
                     download_url = asset.get("browser_download_url")
                     break
 
             if not download_url:
-                error(f"Could not find installer for {arch} architecture")
-                return False, f"No installer found for {arch}", None, None
+                error(f"Could not find {bundle_name}")
+                return False, "No installer found", None, None
 
             # Save update info
             self._save_metadata(check_time=True, version=latest_version, url=download_url)
@@ -442,7 +442,7 @@ $ErrorActionPreference = 'Stop'
 try {{
     Add-AppxPackage -Path '{installer_path}' -ForceApplicationShutdown
     Start-Sleep -Seconds 2
-    Start-Process 'shell:AppsFolder\\{APP_ID}'
+    Start-Process 'shell:AppsFolder\{APP_ID}!App'
 }} catch {{
     Write-Error $_.Exception.Message
     exit 1

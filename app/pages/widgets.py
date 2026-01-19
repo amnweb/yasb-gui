@@ -7,6 +7,7 @@ Manages widget creation, deletion, and settings with card sections and context m
 import json
 import re
 import time
+import webbrowser
 from ctypes import WinError
 from types import SimpleNamespace
 
@@ -805,6 +806,8 @@ class WidgetsPage:
                 def on_env_created(op: IAsyncOperation, status: AsyncStatus):
                     if status == AsyncStatus.ERROR:
                         error(f"WebView2 environment creation failed: {WinError(op.error_code.value)}")
+                        self._show_webview2_missing_dialog()
+                        dialog.hide()
                         return
                     if status != AsyncStatus.COMPLETED:
                         return
@@ -1052,3 +1055,25 @@ class WidgetsPage:
         position = positions[position_idx] if position_idx < len(positions) else "left"
 
         self._show_new_widget_dialog(widget_info, position)
+
+    def _show_webview2_missing_dialog(self):
+        """Show dialog when WebView2 runtime is not found."""
+        try:
+            dialog_template = load_xaml("dialogs/WebView2MissingDialog.xaml")
+            dialog_xaml = dialog_template.format(
+                title=UIFactory.escape_xml(t("webview2_missing_title")),
+                message=UIFactory.escape_xml(t("webview2_missing_message")),
+                hint=UIFactory.escape_xml(t("webview2_missing_hint")),
+                download=UIFactory.escape_xml(t("webview2_download")),
+                close=UIFactory.escape_xml(t("webview2_close")),
+            )
+            dialog = self._app.create_dialog(dialog_xaml)
+
+            def on_closing(sender, args):
+                if args.result == ContentDialogButton.PRIMARY:
+                    webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+
+            dialog.add_closing(on_closing)
+            dialog.show_async()
+        except Exception as e:
+            error(f"WebView2 missing dialog error: {e}")

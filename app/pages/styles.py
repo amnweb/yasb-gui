@@ -7,6 +7,7 @@ Edits CSS stylesheets with Monaco editor.
 import json
 import subprocess
 import time
+import webbrowser
 from ctypes import WinError
 
 from core.code_editor import get_code_editor_html_uri
@@ -21,7 +22,7 @@ from webview2.microsoft.web.webview2.core import CoreWebView2Environment
 from winrt.windows.foundation import AsyncStatus, IAsyncAction, IAsyncOperation, Uri
 from winrt.windows.ui import Color
 from winui3.microsoft.ui.xaml import FrameworkElement, Visibility
-from winui3.microsoft.ui.xaml.controls import FontIcon, Grid, Page, StackPanel, TextBlock, WebView2
+from winui3.microsoft.ui.xaml.controls import ContentDialogButton, FontIcon, Grid, Page, StackPanel, TextBlock, WebView2
 from winui3.microsoft.ui.xaml.markup import XamlReader
 
 
@@ -98,6 +99,7 @@ class StylesPage:
         def on_env_created(op: IAsyncOperation, status: AsyncStatus):
             if status == AsyncStatus.ERROR:
                 error(f"WebView2 environment creation failed: {WinError(op.error_code.value)}")
+                self._show_webview2_missing_dialog()
                 return
             if status != AsyncStatus.COMPLETED:
                 return
@@ -227,3 +229,25 @@ class StylesPage:
         except Exception as e:
             error(f"Get content error: {e}")
         return ""
+
+    def _show_webview2_missing_dialog(self):
+        """Show dialog when WebView2 runtime is not found."""
+        try:
+            dialog_template = load_xaml("dialogs/WebView2MissingDialog.xaml")
+            dialog_xaml = dialog_template.format(
+                title=UIFactory.escape_xml(t("webview2_missing_title")),
+                message=UIFactory.escape_xml(t("webview2_missing_message")),
+                hint=UIFactory.escape_xml(t("webview2_missing_hint")),
+                download=UIFactory.escape_xml(t("webview2_download")),
+                close=UIFactory.escape_xml(t("webview2_close")),
+            )
+            dialog = self._app.create_dialog(dialog_xaml)
+
+            def on_closing(sender, args):
+                if args.result == ContentDialogButton.PRIMARY:
+                    webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+
+            dialog.add_closing(on_closing)
+            dialog.show_async()
+        except Exception as e:
+            error(f"WebView2 missing dialog error: {e}")

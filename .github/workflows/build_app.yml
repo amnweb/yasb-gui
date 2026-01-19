@@ -217,7 +217,7 @@ jobs:
       - name: Get version and MSIX filename
         id: info
         run: |
-          $content = Get-Content -Path "app/scripts/build_msix.py" -Raw
+          $content = Get-Content -Path "app/core/constants.py" -Raw
           $version = [regex]::Match($content, 'APP_VERSION\s*=\s*"([^"]+)"').Groups[1].Value
           $suffix = "${{ steps.arch.outputs.SUFFIX }}"
           $msixArch = "${{ steps.arch.outputs.MSIX_ARCH }}"

@@ -72,23 +72,7 @@
 
 ## Installation
 
-### From Release
 Download the latest release from the [Releases](https://github.com/amnweb/yasb-gui/releases) page.
-
-### From Source
-```bash
-git clone https://github.com/amnweb/yasb-gui.git
-cd yasb-gui
-pip install -e .
-python app/main.py
-```
-
-### Building Executable
-```bash
-pip install .[build]
-python app/scripts/build.py build
-```
-The executable will be created in the `dist/` directory.
 
 ### Add a widget using a docs snippet (how it actually works)
 1) Go to **Widgets** → **Add Widget**.
@@ -155,6 +139,76 @@ YASB GUI supports multiple languages. Translation files are located in `app/core
 4. Do not modify placeholders (e.g., `{variable}`) within the strings
 5. Do not chnage the JSON structure
 6. Submit a pull request
+
+---
+
+## Building from Source
+
+### Development Setup
+```bash
+git clone https://github.com/amnweb/yasb-gui.git
+cd yasb-gui
+pip install -e .
+python app/main.py
+```
+
+### Building Executable
+```bash
+pip install .[build]
+python app/scripts/build.py build
+```
+The executable will be created in the `dist/` directory.
+
+### Building MSIX Package
+After building the executable, you can create an MSIX package:
+```bash
+python app/scripts/build_msix.py
+```
+The MSIX will be created in the `msix/` directory.
+
+**Options:**
+- `--arch x64|aarch64` - Target architecture (default: x64)
+- `--output <path>` - Output directory for MSIX
+
+### Local Development (Unsigned MSIX)
+For local testing without code signing, register the package in development mode:
+```powershell
+# Register the package (runs from extracted layout, not the .msix file)
+Add-AppxPackage -Path "msix/layout/AppxManifest.xml" -Register
+
+# Launch the app
+Start-Process "shell:AppsFolder\YASB.GUI_wbnnev551gwxy!App"
+
+# Uninstall when done
+Get-AppxPackage -Name "YASB.GUI" | Remove-AppxPackage
+```
+
+### Local Signing (Optional)
+To test with a signed MSIX locally, create a self-signed certificate:
+```powershell
+# Create a self-signed certificate (run once)
+$cert = New-SelfSignedCertificate -Type Custom -Subject "CN=YourName" `
+  -KeyUsage DigitalSignature -FriendlyName "YASB GUI Dev" `
+  -CertStoreLocation "Cert:\CurrentUser\My" `
+  -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+
+# Export to PFX (set a password)
+$pwd = ConvertTo-SecureString -String "YourPassword" -Force -AsPlainText
+Export-PfxCertificate -Cert $cert -FilePath "dev-cert.pfx" -Password $pwd
+
+# Trust the certificate (required to install signed packages)
+Import-Certificate -FilePath (Export-Certificate -Cert $cert -FilePath "dev-cert.cer") `
+  -CertStoreLocation "Cert:\LocalMachine\TrustedPeople"
+
+# Sign the MSIX
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign `
+  /fd SHA256 /a /f "dev-cert.pfx" /p "YourPassword" "msix\yasb-gui-0.0.2-x64.msix"
+
+# Install the signed MSIX
+Add-AppxPackage -Path "msix\yasb-gui-0.0.2-x64.msix"
+```
+
+> **Note:** Update the Publisher in `build_msix.py` to match your certificate's CN if signing locally.
 
 ---
 

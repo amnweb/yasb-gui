@@ -70,8 +70,86 @@ jobs:
           name: unsigned-exe-${{ matrix.artifact_suffix }}
           path: dist/ygui.exe
 
-  request-exe-signing:
+  create-release:
     needs: build-exe
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+      version: ${{ steps.create.outputs.version }}
+      tag: ${{ steps.create.outputs.tag }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Create draft release
+        id: create
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        with:
+          github-token: ${{ secrets.YGUI_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const releaseType = process.env.RELEASE_TYPE;
+            const isPrerelease = releaseType === 'prerelease';
+            
+            // Read version from constants.py
+            const content = fs.readFileSync('app/core/constants.py', 'utf8');
+            const match = content.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+            const version = match ? match[1] : '0.0.0';
+            
+            const tag = isPrerelease ? 'dev' : `v${version}`;
+            const releaseName = isPrerelease 
+              ? `YASB GUI Dev Build (${version})` 
+              : `YASB GUI v${version}`;
+            
+            console.log(`Version: ${version}`);
+            console.log(`Tag: ${tag}`);
+            console.log(`Release type: ${releaseType}`);
+            
+            let release;
+            try {
+              // Check if release already exists (e.g., re-run)
+              const { data: existing } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tag
+              });
+              release = existing;
+              console.log(`Found existing release: ${release.id}`);
+              
+              // Update the body to indicate new build
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                body: '**Build in progress...**\n\nSigning MSIX installers...'
+              });
+            } catch (e) {
+              // Create new release
+              const { data: created } = await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: releaseName,
+                body: '**Build in progress...**\n\nSigning MSIX installers...',
+                draft: true,
+                prerelease: isPrerelease
+              });
+              release = created;
+              console.log(`Created new release: ${release.id}`);
+            }
+            
+            core.setOutput('release_id', release.id);
+            core.setOutput('version', version);
+            core.setOutput('tag', tag);
+
+  request-exe-signing:
+    needs: [build-exe, create-release]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
@@ -85,12 +163,19 @@ jobs:
         uses: actions/github-script@v7
         env:
           ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TAG: ${{ needs.create-release.outputs.tag }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const suffix = process.env.ARTIFACT_SUFFIX;
+            const releaseId = parseInt(process.env.RELEASE_ID);
+            const version = process.env.VERSION;
+            const tag = process.env.TAG;
             
             console.log(`Requesting EXE signing for ${suffix}...`);
+            console.log(`Release ID: ${releaseId}, Version: ${version}, Tag: ${tag}`);
             
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
@@ -106,7 +191,10 @@ jobs:
                 input_artifact_name: `unsigned-exe-${suffix}`,
                 output_artifact_name: `signed-exe-${suffix}`,
                 callback_stage: `exe-${suffix}`,
-                release_type: '${{ inputs.release_type }}'
+                release_type: '${{ inputs.release_type }}',
+                release_id: releaseId,
+                version: version,
+                release_tag: tag
               }
             });
 
@@ -237,54 +325,33 @@ jobs:
           name: unsigned-msix-${{ steps.arch.outputs.SUFFIX }}
           path: msix/*.msix
 
-      - name: Create or update draft release
+      - name: Upload MSIX to release
         id: release
         uses: actions/github-script@v7
         env:
-          VERSION: ${{ steps.info.outputs.VERSION }}
-          MSIX_NAME: ${{ steps.info.outputs.MSIX_NAME }}
+          RELEASE_ID: ${{ github.event.client_payload.release_id }}
           RELEASE_TYPE: ${{ github.event.client_payload.release_type || 'stable' }}
+          RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const fs = require('fs');
-            const baseVersion = process.env.VERSION;
+            const releaseId = parseInt(process.env.RELEASE_ID);
             const releaseType = process.env.RELEASE_TYPE;
-            const isPrerelease = releaseType === 'prerelease';
+            const releaseTag = process.env.RELEASE_TAG;
             
-            // Prerelease always uses 'dev' tag, stable uses versioned tag
-            const tag = isPrerelease ? 'dev' : `v${baseVersion}`;
-            const releaseName = isPrerelease 
-              ? `YASB GUI Dev Build (${baseVersion})` 
-              : `YASB GUI v${baseVersion}`;
-            
+            console.log(`Using release ID: ${releaseId}`);
             console.log(`Release type: ${releaseType}`);
-            console.log(`Tag: ${tag}`);
+            console.log(`Release tag: ${releaseTag}`);
             
-            let release;
-            try {
-              const { data: existing } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tag
-              });
-              release = existing;
-              console.log(`Found existing release: ${release.id}`);
-            } catch (e) {
-              const { data: created } = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-                name: releaseName,
-                body: '**Build in progress...**\n\nSigning MSIX installers...',
-                draft: true,
-                prerelease: isPrerelease
-              });
-              release = created;
-              console.log(`Created new release: ${release.id}`);
-            }
+            // Get current release to check existing assets
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
             
-            core.setOutput('release_type', releaseType);
+            console.log(`Release: ${release.name}`);
             
             const msixFiles = fs.readdirSync('msix').filter(f => f.endsWith('.msix'));
             for (const msix of msixFiles) {
@@ -293,6 +360,7 @@ jobs:
               
               const existingAsset = release.assets?.find(a => a.name === msix);
               if (existingAsset) {
+                console.log(`Deleting existing asset: ${msix}`);
                 await github.rest.repos.deleteReleaseAsset({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -303,32 +371,32 @@ jobs:
               await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                release_id: release.id,
+                release_id: releaseId,
                 name: msix,
                 data: data
               });
+              console.log(`Uploaded: ${msix}`);
             }
             
-            core.setOutput('release_id', release.id);
-            return release.id;
+            core.setOutput('release_id', releaseId);
+            core.setOutput('release_type', releaseType);
+            core.setOutput('release_tag', releaseTag);
 
       - name: Trigger MSIX signing on yasb
         uses: actions/github-script@v7
         env:
-          VERSION: ${{ steps.info.outputs.VERSION }}
           RELEASE_ID: ${{ steps.release.outputs.release_id }}
           MSIX_NAME: ${{ steps.info.outputs.MSIX_NAME }}
           SUFFIX: ${{ steps.info.outputs.SUFFIX }}
           RELEASE_TYPE: ${{ steps.release.outputs.release_type }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         with:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             console.log('Requesting MSIX signing...');
-            
-            const releaseType = process.env.RELEASE_TYPE || 'stable';
-            const isPrerelease = releaseType === 'prerelease';
-            // Prerelease always uses 'dev' tag, stable uses versioned tag
-            const tag = isPrerelease ? 'dev' : `v${process.env.VERSION}`;
+            console.log(`Release ID: ${process.env.RELEASE_ID}`);
+            console.log(`Release tag: ${process.env.RELEASE_TAG}`);
+            console.log(`MSIX: ${process.env.MSIX_NAME}`);
             
             await github.rest.repos.createDispatchEvent({
               owner: 'amnweb',
@@ -337,13 +405,13 @@ jobs:
               client_payload: {
                 source_repo: 'amnweb/yasb-gui',
                 release_id: parseInt(process.env.RELEASE_ID),
-                release_tag: tag,
+                release_tag: process.env.RELEASE_TAG,
                 signing_policy: 'release-signing',
                 artifact_configuration: 'signing_installer_msix',
                 files: [process.env.MSIX_NAME],
                 mode: 'release',
                 callback_stage: `msix-${process.env.SUFFIX}`,
-                release_type: releaseType
+                release_type: process.env.RELEASE_TYPE
               }
             });
 
@@ -371,6 +439,7 @@ jobs:
           github-token: ${{ secrets.YGUI_TOKEN }}
           script: |
             const releaseId = parseInt(process.env.RELEASE_ID);
+            console.log(`Checking release ID: ${releaseId}`);
             
             const { data: release } = await github.rest.repos.getRelease({
               owner: context.repo.owner,
@@ -378,11 +447,18 @@ jobs:
               release_id: releaseId
             });
             
+            console.log(`Release: ${release.name} (${release.tag_name})`);
+            console.log(`Total assets: ${release.assets.length}`);
+            release.assets.forEach(a => console.log(`  - ${a.name} (${a.size} bytes)`));
+            
             const msixFiles = release.assets.filter(a => a.name.endsWith('.msix'));
             console.log(`Found ${msixFiles.length} MSIX files in release`);
+            msixFiles.forEach(a => console.log(`  MSIX: ${a.name}`));
             
-            // We expect 2 MSIXs (x64 and arm64)
+            // We expect 2 MSIXs (x64 and aarch64)
             const ready = msixFiles.length >= 2;
+            console.log(`Ready to finalize: ${ready}`);
+            
             core.setOutput('ready', ready);
             core.setOutput('release_id', releaseId);
             core.setOutput('release_tag', release.tag_name);

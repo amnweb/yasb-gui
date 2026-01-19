@@ -110,41 +110,48 @@ jobs:
             console.log(`Tag: ${tag}`);
             console.log(`Release type: ${releaseType}`);
             
-            let release;
-            try {
-              // Check if release already exists (e.g., re-run)
-              const { data: existing } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tag
-              });
-              release = existing;
-              console.log(`Found existing release: ${release.id}`);
-              
-              // Update the body to indicate new build
-              await github.rest.repos.updateRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: release.id,
-                body: '**Build in progress...**\n\nSigning MSIX installers...'
-              });
-            } catch (e) {
-              // Create new release
-              const { data: created } = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-                name: releaseName,
-                body: '**Build in progress...**\n\nSigning MSIX installers...',
-                draft: true,
-                prerelease: isPrerelease
-              });
-              release = created;
-              console.log(`Created new release: ${release.id}`);
+            // For prerelease: delete old dev release if exists
+            if (isPrerelease) {
+              try {
+                const { data: existing } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: 'dev'
+                });
+                
+                console.log(`Deleting old dev release: ${existing.id} (${existing.name})`);
+                await github.rest.repos.deleteRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: existing.id
+                });
+                
+                // Delete the tag
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: 'tags/dev'
+                });
+                console.log('Deleted tag: dev');
+              } catch (e) {
+                console.log('No existing dev release found');
+              }
             }
             
+            // Create new release
+            const { data: release } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: releaseName,
+              body: '**Build in progress...**\n\nSigning MSIX installers...',
+              draft: true,
+              prerelease: isPrerelease
+            });
+            
+            console.log(`Created new release: ${release.id}`);
+            
             core.setOutput('release_id', release.id);
-            core.setOutput('version', version);
             core.setOutput('tag', tag);
 
   request-exe-signing:

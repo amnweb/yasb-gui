@@ -91,7 +91,7 @@ jobs:
             const version = match ? match[1] : '0.0.0';
             
             const tag = `v${version}`;
-            const releaseName = `YASB GUI v${version}`;
+            const releaseName = `YASB GUI v${version} (Beta)`;
             
             console.log(`Version: ${version}, Tag: ${tag}`);
             

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 # Application metadata
-APP_VERSION = "0.0.3"
+APP_VERSION = "0.0.4"
 DEFAULT_SETTINGS = {"language": "en", "theme": "default", "backdrop": "mica"}
 
 # External URLs

@@ -72,6 +72,9 @@ def build_msix(
     if not dist_dir.exists():
         raise FileNotFoundError(f"dist directory not found: {dist_dir}")
 
+    # Windows only accepts: x86, x64, arm, arm64, neutral
+    manifest_arch = "arm64" if arch == "aarch64" else arch
+
     # Prepare layout directory
     layout_dir = output_dir / "layout"
     if layout_dir.exists():
@@ -122,7 +125,7 @@ def build_msix(
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap rescap">
-  <Identity Name="{identity_name}" Publisher="{publisher}" Version="{version}" ProcessorArchitecture="{arch}" />
+  <Identity Name="{identity_name}" Publisher="{publisher}" Version="{version}" ProcessorArchitecture="{manifest_arch}" />
   <Properties>
     <DisplayName>{display_name}</DisplayName>
     <PublisherDisplayName>{publisher_display_name}</PublisherDisplayName>

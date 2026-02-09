@@ -4,7 +4,6 @@ Tests for Schema Fetcher - Widget schema database management.
 Tests schema parsing, hierarchy building, database operations.
 """
 
-import ast
 import json
 import sys
 from pathlib import Path
@@ -15,8 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 from core.schema_fetcher import (
     _build_key_hierarchy,
-    _extract_ast_value,
-    _parse_validation_schema,
+    _extract_widget_option_schemas,
     get_all_widget_types,
     get_widget_key_hierarchy,
     get_widget_schema,
@@ -139,85 +137,35 @@ class TestSchemaQuerying:
         assert "yasb.weather.WeatherWidget" in types
 
 
-# --- Validation Schema Parsing ---
+# --- JSON Schema Extraction ---
 
 
-class TestValidationParsing:
-    """Tests for parsing VALIDATION_SCHEMA from Python code."""
+class TestJsonSchemaExtraction:
+    """Tests for extracting widget schemas from JSON schema."""
 
-    def test_parse_simple_schema(self):
-        """Should parse simple validation schema."""
-        code = """
-VALIDATION_SCHEMA = {
-    "label": {"type": "string", "default": "Clock"},
-    "format": {"type": "string", "default": "%H:%M"},
-}
-"""
-        result = _parse_validation_schema(code)
-
-        assert result is not None
-        assert "label" in result
-        assert result["label"]["type"] == "string"
-
-    def test_parse_nested_schema(self):
-        """Should parse schema with nested dict."""
-        code = """
-VALIDATION_SCHEMA = {
-    "callbacks": {
-        "type": "dict",
-        "schema": {
-            "on_left": {"type": "string"},
-            "on_right": {"type": "string"},
+    def test_extract_widget_options_from_schema(self):
+        """Should extract widget option schemas from widgets anyOf."""
+        schema = {
+            "$defs": {
+                "SampleConfig": {
+                    "type": "object",
+                    "properties": {"label": {"type": "string"}},
+                },
+                "SampleEntry": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"const": "yasb.sample.SampleWidget"},
+                        "options": {"$ref": "#/$defs/SampleConfig"},
+                    },
+                },
+            },
+            "properties": {"widgets": {"additionalProperties": {"anyOf": [{"$ref": "#/$defs/SampleEntry"}]}}},
         }
-    }
-}
-"""
-        result = _parse_validation_schema(code)
 
-        assert result is not None
-        assert "callbacks" in result
-        assert result["callbacks"]["type"] == "dict"
-        assert "on_left" in result["callbacks"]["schema"]
+        result = _extract_widget_option_schemas(schema)
 
-    def test_parse_list_schema(self):
-        """Should parse schema with list type."""
-        code = """
-VALIDATION_SCHEMA = {
-    "items": {
-        "type": "list",
-        "schema": {"type": "dict", "schema": {"name": {"type": "string"}}}
-    }
-}
-"""
-        result = _parse_validation_schema(code)
-
-        assert result is not None
-        assert result["items"]["type"] == "list"
-
-    def test_parse_annotated_assignment(self):
-        """Should parse annotated assignment (VALIDATION_SCHEMA: dict = {...})."""
-        code = """
-VALIDATION_SCHEMA: dict = {
-    "label": {"type": "string"},
-}
-"""
-        result = _parse_validation_schema(code)
-
-        assert result is not None
-        assert "label" in result
-
-    def test_parse_invalid_code(self):
-        """Should return None for invalid Python code."""
-        result = _parse_validation_schema("not valid python {{{{")
-        assert result is None
-
-    def test_parse_no_schema(self):
-        """Should return None when VALIDATION_SCHEMA not found."""
-        code = """
-OTHER_VAR = {"key": "value"}
-"""
-        result = _parse_validation_schema(code)
-        assert result is None
+        assert "yasb.sample.SampleWidget" in result
+        assert result["yasb.sample.SampleWidget"]["type"] == "object"
 
 
 # --- Hierarchy Building ---
@@ -229,8 +177,11 @@ class TestHierarchyBuilding:
     def test_simple_hierarchy(self):
         """Should build hierarchy for flat schema."""
         schema = {
-            "label": {"type": "string"},
-            "enabled": {"type": "boolean"},
+            "type": "object",
+            "properties": {
+                "label": {"type": "string"},
+                "enabled": {"type": "boolean"},
+            },
         }
         result = _build_key_hierarchy(schema)
 
@@ -241,13 +192,16 @@ class TestHierarchyBuilding:
     def test_nested_dict_hierarchy(self):
         """Should build hierarchy for nested dicts."""
         schema = {
-            "callbacks": {
-                "type": "dict",
-                "schema": {
-                    "on_left": {"type": "string"},
-                    "on_right": {"type": "string"},
-                },
-            }
+            "type": "object",
+            "properties": {
+                "callbacks": {
+                    "type": "object",
+                    "properties": {
+                        "on_left": {"type": "string"},
+                        "on_right": {"type": "string"},
+                    },
+                }
+            },
         }
         result = _build_key_hierarchy(schema)
 
@@ -258,16 +212,19 @@ class TestHierarchyBuilding:
     def test_list_of_dicts_hierarchy(self):
         """Should build hierarchy for list of dicts."""
         schema = {
-            "menu_list": {
-                "type": "list",
-                "schema": {
-                    "type": "dict",
-                    "schema": {
-                        "title": {"type": "string"},
-                        "path": {"type": "string"},
+            "type": "object",
+            "properties": {
+                "menu_list": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "path": {"type": "string"},
+                        },
                     },
-                },
-            }
+                }
+            },
         }
         result = _build_key_hierarchy(schema)
 
@@ -278,10 +235,13 @@ class TestHierarchyBuilding:
     def test_simple_list_hierarchy(self):
         """Should handle simple list (list of scalars)."""
         schema = {
-            "margin": {
-                "type": "list",
-                "schema": {"type": "integer"},
-            }
+            "type": "object",
+            "properties": {
+                "margin": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                }
+            },
         }
         result = _build_key_hierarchy(schema)
 
@@ -290,38 +250,32 @@ class TestHierarchyBuilding:
         assert result["margin"]["children"] == []
 
 
-# --- AST Value Extraction ---
+# --- JSON Schema Variants ---
 
 
-class TestAstExtraction:
-    """Tests for AST value extraction."""
+class TestJsonSchemaVariants:
+    """Tests for anyOf handling in JSON schema."""
 
-    def test_extract_string(self):
-        """Should extract string constants."""
-        node = ast.Constant(value="test")
-        assert _extract_ast_value(node) == "test"
+    def test_anyof_nullable_object(self):
+        """Should use the object branch when nullable is present."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "null"},
+                    ]
+                },
+                "callbacks": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {"type": "object", "properties": {"on_left": {"type": "string"}}},
+                    ]
+                },
+            },
+        }
+        result = _build_key_hierarchy(schema)
 
-    def test_extract_number(self):
-        """Should extract numeric constants."""
-        node = ast.Constant(value=42)
-        assert _extract_ast_value(node) == 42
-
-    def test_extract_boolean(self):
-        """Should extract boolean constants."""
-        node = ast.Constant(value=True)
-        assert _extract_ast_value(node) is True
-
-    def test_extract_list(self):
-        """Should extract list values."""
-        node = ast.List(elts=[ast.Constant(value=1), ast.Constant(value=2)])
-        assert _extract_ast_value(node) == [1, 2]
-
-    def test_extract_dict(self):
-        """Should extract dict values."""
-        node = ast.Dict(keys=[ast.Constant(value="key")], values=[ast.Constant(value="value")])
-        assert _extract_ast_value(node) == {"key": "value"}
-
-    def test_extract_negative_number(self):
-        """Should extract negative numbers."""
-        node = ast.UnaryOp(op=ast.USub(), operand=ast.Constant(value=5))
-        assert _extract_ast_value(node) == -5
+        assert "callbacks" in result
+        assert result["callbacks"]["type"] == "dict"

@@ -21,6 +21,7 @@ def _get_yaml_instance(preserve_quotes: bool = True) -> YAML:
     """Get a configured YAML parser."""
     y = YAML()
     y.preserve_quotes = preserve_quotes
+    y.allow_unicode = False
     y.indent(mapping=2, sequence=4, offset=2)
     y.width = 120
     y.default_flow_style = False

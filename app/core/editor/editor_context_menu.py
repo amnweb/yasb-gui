@@ -51,7 +51,8 @@ def monaco_context_menu(
                 webview.execute_script_async(
                     "if(window.editor){editor.focus();"
                     f"editor.executeEdits('native-paste',[{{range:editor.getSelection(),text:{js_text},forceMoveMarkers:true}}]);"
-                    "editor.pushUndoStop();}"
+                    "editor.pushUndoStop();"
+                    "if(window.fixIndentation) fixIndentation();}"
                 )
 
             def on_text(op_inner: IAsyncOperation, status: AsyncStatus):

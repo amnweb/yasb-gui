@@ -1,17 +1,13 @@
 """
-Widget schema fetching from YASB repository.
+Widget schema fetching from YASB JSON schema.
 
-Downloads validation schemas from the YASB repo and builds a local database
+Downloads the JSON schema from the YASB repo and builds a local database
 of widget options for validation and auto-fixing indentation.
 """
 
-import ast
-import io
 import json
-import re
 import urllib.error
 import urllib.request
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,10 +16,7 @@ from core.constants import SCHEMA_DB_PATH
 from core.errors import get_friendly_error_message
 from core.logger import error, info
 
-GITHUB_ZIP_URL = "https://github.com/amnweb/yasb/archive/refs/heads/main.zip"
-GITHUB_API_URL = "https://api.github.com/repos/amnweb/yasb"
-WIDGETS_VALIDATION_PATH = "yasb-main/src/core/validation/widgets"
-WIDGETS_DOCS_PATH = "yasb-main/docs/widgets"
+SCHEMA_JSON_URL = "https://raw.githubusercontent.com/amnweb/yasb/refs/heads/main/schema.json"
 
 
 def get_schema_db_path() -> Path:
@@ -56,32 +49,14 @@ def save_schema_database(schemas: dict[str, Any]) -> bool:
         return False
 
 
-def _get_repo_size() -> int:
-    """Get repo size from GitHub API (helps estimate download size)."""
+def _download_schema_json(progress_callback=None) -> dict[str, Any] | None:
     try:
-        req = urllib.request.Request(GITHUB_API_URL, headers={"User-Agent": "YASB-Config/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.load(response)
-            return data.get("size", 0) * 1024
-    except Exception:
-        return 0
-
-
-def _download_zip(progress_callback=None) -> bytes | None:
-    try:
-        info(f"Downloading repository zip from {GITHUB_ZIP_URL}...")
-        req = urllib.request.Request(GITHUB_ZIP_URL, headers={"User-Agent": "YASB-Config/1.0"})
+        info(f"Downloading JSON schema from {SCHEMA_JSON_URL}...")
+        req = urllib.request.Request(SCHEMA_JSON_URL, headers={"User-Agent": "YASB-Config/1.0"})
         with urllib.request.urlopen(req, timeout=60) as response:
             total_size = int(response.headers.get("Content-Length", 0))
-
-            # If no Content-Length (common with GitHub archives), try API
-            if total_size == 0:
-                total_size = _get_repo_size()
-
             downloaded = 0
             chunks = []
-
-            info(f"Starting download. Total size: {total_size} bytes")
 
             while chunk := response.read(65536):
                 chunks.append(chunk)
@@ -91,152 +66,179 @@ def _download_zip(progress_callback=None) -> bytes | None:
                         progress = int((downloaded / total_size) * 100)
                         progress_callback(progress, 100, f"Downloading... {downloaded // 1024} KB")
                     else:
-                        # Unknown size - send 0 as total
                         progress_callback(downloaded, 0, f"Downloading... {downloaded // 1024} KB")
 
-            info("Download complete.")
-            return b"".join(chunks)
+            info("Schema download complete.")
+            return json.loads(b"".join(chunks))
     except urllib.error.URLError as e:
         error(f"Network error during download: {e.reason if hasattr(e, 'reason') else e}")
     except Exception as e:
-        error(f"Failed to download repository: {e}")
+        error(f"Failed to download schema: {e}")
     return None
 
 
-def _extract_from_zip(zip_data: bytes) -> tuple[dict[str, str], dict[str, str]]:
-    """Extract validation schemas and widget types from the downloaded zip."""
-    validation_files = {}
-    widget_types = {}
-
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            file_list = zf.namelist()
-
-            for name in file_list:
-                if name.startswith(WIDGETS_VALIDATION_PATH) and name.endswith(".py"):
-                    relative = name[len(WIDGETS_VALIDATION_PATH) + 1 :]
-                    if "/" in relative:
-                        content = zf.read(name).decode("utf-8")
-                        validation_files[relative] = content
-
-                elif name.startswith(WIDGETS_DOCS_PATH) and name.endswith(".md"):
-                    content = zf.read(name).decode("utf-8")
-                    match = re.search(r"type:\s*['\"]?([\w]+\.[\w.]+)['\"]?", content)
-                    if match:
-                        full_type = match.group(1)
-                        short_path = full_type.rsplit(".", 1)[0]
-                        widget_types[short_path] = full_type
-
-    except Exception as e:
-        error(f"Failed to extract files: {e}")
-
-    return validation_files, widget_types
+def _resolve_ref(ref: str, defs: dict[str, Any]) -> dict[str, Any] | None:
+    if not ref.startswith("#/$defs/"):
+        return None
+    name = ref.split("/", 2)[2]
+    return defs.get(name)
 
 
-def _extract_ast_value(node: ast.AST) -> Any:
-    """Convert AST node to Python value."""
-    if isinstance(node, ast.Dict):
-        return {_extract_ast_value(k): _extract_ast_value(v) for k, v in zip(node.keys, node.values) if k is not None}
-    elif isinstance(node, ast.List):
-        return [_extract_ast_value(el) for el in node.elts]
-    elif isinstance(node, ast.Constant):
-        return node.value
-    elif isinstance(node, ast.Name):
-        return f"${{{node.id}}}"
-    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        val = _extract_ast_value(node.operand)
-        return -val if isinstance(val, (int, float)) else None
-    return None
+def _schema_is_object(schema: dict[str, Any]) -> bool:
+    schema_type = schema.get("type")
+    return schema_type == "object" or "properties" in schema
 
 
-def _parse_validation_schema(content: str) -> dict | None:
-    """Parse VALIDATION_SCHEMA from Python file content."""
-    try:
-        for node in ast.walk(ast.parse(content)):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "VALIDATION_SCHEMA":
-                        return _extract_ast_value(node.value)
-            elif isinstance(node, ast.AnnAssign):
-                if isinstance(node.target, ast.Name) and node.target.id == "VALIDATION_SCHEMA":
-                    return _extract_ast_value(node.value) if node.value else None
-    except Exception as e:
-        error(f"Error parsing validation file: {e}")
-    return None
+def _schema_is_array(schema: dict[str, Any]) -> bool:
+    schema_type = schema.get("type")
+    return schema_type == "array" or "items" in schema
 
 
-def _build_key_hierarchy(schema: dict, parent_key: str = "") -> dict[str, dict]:
-    """Build parent -> {type, children} mapping from schema.
+def _schema_is_null(schema: dict[str, Any]) -> bool:
+    schema_type = schema.get("type")
+    if schema_type == "null":
+        return True
+    enum_values = schema.get("enum")
+    return isinstance(enum_values, list) and len(enum_values) == 1 and enum_values[0] is None
 
-    Returns a dict where each key maps to:
-    - {"type": "dict"|"list"|"scalar", "children": [...]} for keys with nested structure
-    - Just the key name in _root's children list for simple tracking
-    """
-    result = {}
-    children = []
 
-    for key, value in schema.items():
+def _merge_schema_nodes(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    properties = dict(base.get("properties", {}))
+    properties.update(extra.get("properties", {}))
+    if properties:
+        merged["properties"] = properties
+    for key, value in extra.items():
+        if key == "properties":
+            continue
+        merged[key] = value
+    return merged
+
+
+def _resolve_schema_node(schema: dict[str, Any], defs: dict[str, Any], seen: set[str] | None = None) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {}
+
+    seen = seen or set()
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        if ref in seen:
+            return {}
+        seen.add(ref)
+        resolved = _resolve_ref(ref, defs)
+        return _resolve_schema_node(resolved or {}, defs, seen)
+
+    if "allOf" in schema:
+        merged = {}
+        for part in schema.get("allOf", []):
+            merged = _merge_schema_nodes(merged, _resolve_schema_node(part, defs, seen))
+        remainder = {k: v for k, v in schema.items() if k != "allOf"}
+        return _merge_schema_nodes(merged, remainder)
+
+    if "anyOf" in schema or "oneOf" in schema:
+        options = schema.get("anyOf") or schema.get("oneOf") or []
+        best = _choose_schema_variant(options, defs, seen)
+        remainder = {k: v for k, v in schema.items() if k not in ("anyOf", "oneOf")}
+        return _merge_schema_nodes(best, remainder)
+
+    return schema
+
+
+def _choose_schema_variant(options: list[dict[str, Any]], defs: dict[str, Any], seen: set[str]) -> dict[str, Any]:
+    for option in options:
+        resolved = _resolve_schema_node(option, defs, seen.copy())
+        if _schema_is_object(resolved) or _schema_is_array(resolved):
+            return resolved
+    for option in options:
+        resolved = _resolve_schema_node(option, defs, seen.copy())
+        if not _schema_is_null(resolved):
+            return resolved
+    if options:
+        return _resolve_schema_node(options[0], defs, seen.copy())
+    return {}
+
+
+def _build_key_hierarchy(schema: dict, defs: dict[str, Any] | None = None, parent_key: str = "") -> dict[str, dict]:
+    """Build parent -> {type, children} mapping from JSON schema objects."""
+    defs = defs or {}
+    resolved = _resolve_schema_node(schema, defs)
+    properties = resolved.get("properties", {}) if isinstance(resolved, dict) else {}
+
+    result: dict[str, dict] = {}
+    children: list[str] = []
+
+    for key, value in properties.items():
         children.append(key)
         if not isinstance(value, dict):
             continue
 
         full_key = f"{parent_key}.{key}" if parent_key else key
-        inner_schema = value.get("schema")
+        nested_schema = _resolve_schema_node(value, defs)
 
-        value_type = value.get("type")
-        is_dict = value_type == "dict" or (isinstance(value_type, list) and "dict" in value_type)
-        is_list = value_type == "list" or (isinstance(value_type, list) and "list" in value_type)
-
-        if is_dict and inner_schema and isinstance(inner_schema, dict):
-            # Dict type - children are direct properties
-            nested = _build_key_hierarchy(inner_schema, full_key)
+        if _schema_is_object(nested_schema):
+            nested_props = nested_schema.get("properties", {})
+            nested = _build_key_hierarchy(nested_schema, defs, full_key)
             result.update(nested)
-            result[full_key] = {"type": "dict", "children": list(inner_schema.keys())}
-        elif is_list:
-            if inner_schema and inner_schema.get("type") == "dict" and "schema" in inner_schema:
-                # List of dicts - children are properties of each list item
-                item_schema = inner_schema["schema"]
-                nested = _build_key_hierarchy(item_schema, full_key)
+            result[full_key] = {"type": "dict", "children": list(nested_props.keys())}
+            continue
+
+        if _schema_is_array(nested_schema):
+            item_schema = _resolve_schema_node(nested_schema.get("items", {}), defs)
+            if _schema_is_object(item_schema):
+                item_props = item_schema.get("properties", {})
+                nested = _build_key_hierarchy(item_schema, defs, full_key)
                 result.update(nested)
-                result[full_key] = {"type": "list", "children": list(item_schema.keys())}
+                result[full_key] = {"type": "list", "children": list(item_props.keys())}
             else:
-                # Simple list (list of scalars)
                 result[full_key] = {"type": "list", "children": []}
 
     result[parent_key or "_root"] = {"type": "dict", "children": children}
     return result
 
 
+def _extract_widget_option_schemas(schema_json: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    defs = schema_json.get("$defs", {})
+    widgets_schema = schema_json.get("properties", {}).get("widgets", {})
+    additional_props = widgets_schema.get("additionalProperties", {})
+    entries = additional_props.get("anyOf", [])
+
+    widget_schemas: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        entry_schema = _resolve_schema_node(entry, defs)
+        props = entry_schema.get("properties", {}) if isinstance(entry_schema, dict) else {}
+
+        type_schema = _resolve_schema_node(props.get("type", {}), defs)
+        widget_type = type_schema.get("const")
+        if not widget_type:
+            enum_values = type_schema.get("enum", [])
+            if isinstance(enum_values, list) and len(enum_values) == 1:
+                widget_type = enum_values[0]
+
+        options_schema = _resolve_schema_node(props.get("options", {}), defs)
+        if widget_type and options_schema:
+            widget_schemas[widget_type] = options_schema
+
+    return widget_schemas
+
+
 def fetch_all_schemas(progress_callback=None) -> dict[str, Any]:
     """Fetch all widget schemas from GitHub."""
-    schemas = {"_meta": {"version": 1, "source": "github.com/amnweb/yasb"}, "widgets": {}}
+    schemas = {"_meta": {"version": 1, "source": SCHEMA_JSON_URL}, "widgets": {}}
 
-    zip_data = _download_zip(progress_callback)
-    if not zip_data:
+    schema_json = _download_schema_json(progress_callback)
+    if not schema_json:
         return schemas
 
-    if progress_callback:
-        progress_callback(100, 100, "Extracting files...")
+    defs = schema_json.get("$defs", {})
+    widget_options = _extract_widget_option_schemas(schema_json)
+    total = len(widget_options)
 
-    validation_files, widget_types = _extract_from_zip(zip_data)
-
-    for path, content in validation_files.items():
-        parts = path.replace(".py", "").split("/")
-        if len(parts) != 2:
-            continue
-
-        short_path = f"{parts[0]}.{parts[1]}"
-        full_type = widget_types.get(short_path)
-        if not full_type:
-            continue
-
+    for index, (widget_type, options_schema) in enumerate(widget_options.items(), start=1):
         if progress_callback:
-            progress_callback(100, 100, f"Processing {full_type}...")
+            progress_callback(index, total, f"Processing {widget_type}...")
 
-        validation_schema = _parse_validation_schema(content)
-        if validation_schema:
-            hierarchy = _build_key_hierarchy(validation_schema)
-            schemas["widgets"][full_type] = {"hierarchy": hierarchy}
+        hierarchy = _build_key_hierarchy(options_schema, defs)
+        schemas["widgets"][widget_type] = {"hierarchy": hierarchy}
 
     if progress_callback:
         progress_callback(100, 100, "Complete!")

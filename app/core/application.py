@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union
 
 from core.config_manager import ConfigManager
-from core.constants import APP_ICON, IS_EXECUTABLE
+from core.constants import APP_ICON, IS_EXECUTABLE, LOG_PATH
 from core.localization import t
 from core.logger import error, warning
 from core.preferences import get_preferences
@@ -88,6 +88,7 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
         self._loading = False
         self._nav_items = {}  # Store nav items by tag for updating labels
         self._unsaved_infobar = None  # InfoBar for unsaved changes
+        self._config_load_error = None
 
         # App update state
         self._update_available = False
@@ -182,8 +183,13 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
             return
 
         def load_in_background():
-            self._config_manager.load_config()
-            self._config_loaded = True
+            try:
+                self._config_manager.load_config()
+            except Exception as e:
+                self._config_load_error = str(e)
+                error(f"Failed to load config: {e}", exc_info=True)
+            finally:
+                self._config_loaded = True
 
         self._config_loaded = False
         self._schema_check_done = False
@@ -199,6 +205,9 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
                 elapsed = time.time() - self._loading_start_time
                 if elapsed >= 1.0:
                     self._load_check_timer.stop()
+                    if self._config_load_error:
+                        self._show_config_error_dialog(self._config_load_error)
+                        return
                     # Check schema database before showing content
                     self._check_schema_database()
 
@@ -217,6 +226,27 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
             title=UIFactory.escape_xml(t("missing_config_title")),
             message=UIFactory.escape_xml(t("missing_config_message")),
             hint=UIFactory.escape_xml(t("missing_config_hint")),
+            primary=UIFactory.escape_xml(t("common_exit")),
+        )
+        dialog = self.create_dialog(dialog_xaml)
+
+        def on_primary(s, e):
+            self._window.close()
+
+        dialog.add_primary_button_click(on_primary)
+        dialog.show_async()
+
+    def _show_config_error_dialog(self, error_message: str):
+        """Show dialog when config fails to load and exit on close."""
+        spinner = self._loading_spinner.as_(ProgressRing)
+        spinner.is_active = False
+        spinner.visibility = Visibility.COLLAPSED
+
+        template = load_xaml("dialogs/MissingConfigDialog.xaml")
+        dialog_xaml = template.format(
+            title=UIFactory.escape_xml(t("config_load_error_title")),
+            message=UIFactory.escape_xml(t("config_load_error_message").format(error=error_message)),
+            hint=UIFactory.escape_xml(t("config_load_error_hint").format(log_path=str(LOG_PATH))),
             primary=UIFactory.escape_xml(t("common_exit")),
         )
         dialog = self.create_dialog(dialog_xaml)

@@ -262,6 +262,10 @@
 	"missing_config_message": "YASB configuration files were not found. Please install and run YASB at least once to create the default configuration.",
 	"missing_config_hint": "YASB creates config.yaml and styles.css automatically on first launch.",
 
+	"config_load_error_title": "Config Load Failed",
+	"config_load_error_message": "The YASB configuration could not be loaded. Error: {error}",
+	"config_load_error_hint": "Check the log for details: {log_path}",
+
 	"webview2_missing_title": "WebView2 Runtime Not Found",
 	"webview2_missing_message": "Microsoft Edge WebView2 Runtime is required for the code editor but was not found on your system.",
 	"webview2_missing_hint": "This component is normally included with Windows but may have been removed. Click 'Download' to get it from Microsoft.",

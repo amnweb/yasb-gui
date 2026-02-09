@@ -790,6 +790,17 @@ class WidgetsPage:
                             error_infobar.is_open = True
                         else:
                             error_infobar.is_open = False
+                    elif msg.get("type") == "paste":
+                        content = msg.get("content", "")
+                        fixed, err = fix_yaml_indentation(content, widget_type)
+                        if fixed != content:
+                            webview.execute_script_async(f"setFormattedContent({json.dumps(fixed)})")
+                            editor_state["content"] = fixed
+                        if err:
+                            error_infobar.message = err
+                            error_infobar.is_open = True
+                        else:
+                            error_infobar.is_open = False
                 except Exception as e:
                     error(f"Web message error: {e}")
 

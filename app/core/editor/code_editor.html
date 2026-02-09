@@ -327,6 +327,12 @@
                 }
             });
 
+            editor.onDidPaste(function() {
+                if (currentLanguage === 'yaml' && window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({ type: 'paste', content: editor.getValue() });
+                }
+            });
+
             // Notify host that editor is ready
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({ type: 'ready' });

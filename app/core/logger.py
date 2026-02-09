@@ -8,6 +8,7 @@ keeps 10 backups). Also catches unhandled exceptions and logs them.
 import logging
 import os
 import sys
+import threading
 from logging.handlers import RotatingFileHandler
 
 from core.constants import APP_DATA_DIR, LOG_PATH
@@ -68,6 +69,14 @@ def _setup_exception_hook():
         )
 
     sys.excepthook = exception_hook
+
+    def thread_exception_hook(args: threading.ExceptHookArgs):
+        get_logger().critical(
+            f"Unhandled thread exception in {args.thread.name}: {args.exc_type.__name__}: {args.exc_value}",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    threading.excepthook = thread_exception_hook
 
 
 def debug(msg: str, *args, **kwargs):

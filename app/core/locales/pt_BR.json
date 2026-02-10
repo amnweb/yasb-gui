@@ -78,6 +78,8 @@
 	"bars_always_on_top": "Sempre no Topo",
 	"bars_windows_app_bar": "Barra de Aplicativo Windows",
 	"bars_hide_on_fullscreen": "Ocultar em Tela Cheia",
+	"bars_hide_on_maximized": "Ocultar em Janela Maximizada",
+	"bars_hide_on_maximized_note": "Funciona apenas quando a Barra de Aplicativo Windows está desativada.",
 	"bars_auto_hide": "Ocultar Automaticamente",
 	"bars_animation": "Animação",
 	"bars_animation_desc": "Configurações de animação de mostrar/ocultar",

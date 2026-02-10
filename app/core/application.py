@@ -146,7 +146,7 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
         self._window.activate()
 
         # Set minimum window size
-        self._set_min_window_size(960, 800)
+        self._set_min_window_size(960, 720)
 
     def get_element_theme(self):
         """Get the current element theme based on app preferences."""

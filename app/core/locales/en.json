@@ -77,6 +77,8 @@
 	"bars_always_on_top": "Always On Top",
 	"bars_windows_app_bar": "Windows App Bar",
 	"bars_hide_on_fullscreen": "Hide On Fullscreen",
+	"bars_hide_on_maximized": "Hide On Maximized",
+	"bars_hide_on_maximized_note": "Only works when Windows App Bar is disabled.",
 	"bars_auto_hide": "Auto Hide",
 	"bars_animation": "Animation",
 	"bars_animation_desc": "Show/hide animation settings",

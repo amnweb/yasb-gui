@@ -26,6 +26,7 @@ from winui3.microsoft.ui.xaml.controls import (
     StackPanel,
     TextBlock,
     TextBox,
+    ToolTipService,
 )
 from winui3.microsoft.ui.xaml.markup import XamlReader
 
@@ -393,10 +394,24 @@ class BarsPage:
             window_flags = bar.get("window_flags", {})
             flag_keys = [
                 ("always_on_top", "bars_always_on_top", False),
-                ("windows_app_bar", "bars_windows_app_bar", True),
                 ("hide_on_fullscreen", "bars_hide_on_fullscreen", False),
                 ("auto_hide", "bars_auto_hide", False),
             ]
+
+            # windows_app_bar toggle (separate so hide_on_maximized can reference it)
+            app_bar_toggle = self._ui.create_toggle(
+                t("bars_windows_app_bar"), window_flags.get("windows_app_bar", True)
+            )
+
+            def on_app_bar_toggled(s, e):
+                self._update_bar_nested(bar_name, "window_flags", "windows_app_bar", app_bar_toggle.is_on)
+                # Auto-disable hide_on_maximized when windows_app_bar is enabled
+                if app_bar_toggle.is_on and maximized_toggle.is_on:
+                    maximized_toggle.is_on = False
+
+            app_bar_toggle.add_toggled(on_app_bar_toggled)
+            flags_panel.children.append(app_bar_toggle)
+
             for flag_name, flag_key, default in flag_keys:
                 flag_toggle = self._ui.create_toggle(t(flag_key), window_flags.get(flag_name, default))
                 flag_toggle.add_toggled(
@@ -405,6 +420,35 @@ class BarsPage:
                     )
                 )
                 flags_panel.children.append(flag_toggle)
+
+            # hide_on_maximized with info tooltip
+            maximized_container = self._ui.create_stack_panel(spacing=0)
+            label_row = XamlReader.load(
+                f'<StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+                f' Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">'
+                f'<TextBlock Text="{self._ui.escape_xml(t("bars_hide_on_maximized"))}" VerticalAlignment="Center"/>'
+                f'<TextBlock Text="&#xE946;" FontFamily="Segoe Fluent Icons" FontSize="14"'
+                f' VerticalAlignment="Center"'
+                f' Foreground="{{ThemeResource TextFillColorSecondaryBrush}}"/>'
+                f"</StackPanel>"
+            ).as_(StackPanel)
+            # Set tooltip programmatically on the info icon (second child)
+            info_icon = label_row.children.get_at(1)
+            tooltip_tb = TextBlock()
+            tooltip_tb.text = t("bars_hide_on_maximized_note")
+            ToolTipService.set_tool_tip(info_icon, tooltip_tb)
+            maximized_container.children.append(label_row)
+            maximized_toggle = self._ui.create_toggle("", window_flags.get("hide_on_maximized", False))
+
+            def on_maximized_toggled(s, e):
+                self._update_bar_nested(bar_name, "window_flags", "hide_on_maximized", maximized_toggle.is_on)
+                # Auto-disable windows_app_bar when hide_on_maximized is enabled
+                if maximized_toggle.is_on and app_bar_toggle.is_on:
+                    app_bar_toggle.is_on = False
+
+            maximized_toggle.add_toggled(on_maximized_toggled)
+            maximized_container.children.append(maximized_toggle)
+            flags_panel.children.append(maximized_container)
 
             flags_expander.content = flags_panel
             panel.children.append(flags_expander)
@@ -653,6 +697,7 @@ class BarsPage:
                 "always_on_top": False,
                 "windows_app_bar": False,
                 "hide_on_fullscreen": False,
+                "hide_on_maximized": False,
                 "auto_hide": False,
             },
             "blur_effect": {

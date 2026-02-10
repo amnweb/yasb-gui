@@ -78,6 +78,8 @@
 	"bars_always_on_top": "Immer im Vordergrund",
 	"bars_windows_app_bar": "Windows App-Leiste",
 	"bars_hide_on_fullscreen": "Bei Vollbild ausblenden",
+	"bars_hide_on_maximized": "Bei Maximierung ausblenden",
+	"bars_hide_on_maximized_note": "Funktioniert nur, wenn Windows App-Leiste deaktiviert ist.",
 	"bars_auto_hide": "Automatisch ausblenden",
 	"bars_animation": "Animation",
 	"bars_animation_desc": "Einstellungen für Ein-/Ausblendanimation",

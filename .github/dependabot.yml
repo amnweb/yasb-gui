@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "12:00"
+      timezone: "Etc/UTC"
+    assignees:
+      - "amnweb"
+    groups:
+      winrt:
+        patterns:
+          - "winrt*"
+      winui3:
+        patterns:
+          - "winui3*"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"

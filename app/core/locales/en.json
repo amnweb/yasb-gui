@@ -229,6 +229,8 @@
 	"schema_download_failed_message": "Failed to download widget schemas. The app may not work correctly without the widget database.",
 	"schema_outdated_title": "Widget Database Outdated",
 	"schema_outdated_message": "The widget database is {days} days old. Would you like to update it now?",
+	"schema_version_updated_title": "App Updated",
+	"schema_version_updated_message": "The app has been updated to a new version. The widget database needs to be rebuilt to ensure compatibility.",
 	"settings_update_db": "Update Database",
 	"settings_update_db_desc": "Last update: {date} · {status}",
 	"settings_update_db_none": "No update history found. Click to download.",

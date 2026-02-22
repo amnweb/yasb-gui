@@ -264,6 +264,11 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
             self._show_schema_dialog(mode="required")
             return
 
+        # Check if app was updated to a new version
+        if updater.has_version_changed():
+            self._show_schema_dialog(mode="version_updated")
+            return
+
         # Check metadata age
         _, age = updater.get_last_update_info()
         if age >= 7:
@@ -282,6 +287,7 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
 
         Modes:
             - "required": First start, must download (Update Now / Exit)
+            - "version_updated": App version changed, auto-download (no buttons)
             - "outdated": Database old, optional update (Update Now / Later)
             - "failed": Download failed (Retry / Continue Anyway)
         """
@@ -292,6 +298,11 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
             status = t("schema_download_required")
             primary = t("common_update_now")
             secondary = t("common_exit")
+        elif mode == "version_updated":
+            title = t("schema_version_updated_title")
+            status = t("schema_version_updated_message")
+            primary = t("common_update_now")
+            secondary = t("common_later")
         elif mode == "outdated":
             title = t("schema_outdated_title")
             status = t("schema_outdated_message").format(days=age_days)
@@ -330,7 +341,7 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
                 args.cancel = True
 
         def on_primary(s, e):
-            if mode in ("required", "outdated", "failed"):
+            if mode in ("required", "outdated", "version_updated", "failed"):
                 # Start download - mark as downloading to prevent close
                 self._schema_downloading = True
                 self._start_schema_download()
@@ -339,7 +350,7 @@ class ConfiguratorApp(Application, IXamlMetadataProvider):
             if mode == "required":
                 # Exit app
                 self._window.close()
-            elif mode == "outdated":
+            elif mode in ("outdated", "version_updated"):
                 # Skip update
                 self._show_initial_content()
             elif mode == "failed":

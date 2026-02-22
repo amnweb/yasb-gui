@@ -230,6 +230,8 @@
 	"schema_download_failed_message": "Falha ao baixar os esquemas de widgets. O aplicativo pode não funcionar corretamente sem o banco de dados de widgets.",
 	"schema_outdated_title": "Banco de Dados de Widgets Desatualizado",
 	"schema_outdated_message": "O banco de dados de widgets tem {days} dias. Deseja atualizá-lo agora?",
+	"schema_version_updated_title": "App Atualizado",
+	"schema_version_updated_message": "O app foi atualizado para uma nova versão. O banco de dados de widgets precisa ser reconstruído para garantir a compatibilidade.",
 	"settings_update_db": "Atualizar Banco de Dados",
 	"settings_update_db_desc": "Última atualização: {date} · {status}",
 	"settings_update_db_none": "Nenhum histórico encontrado. Clique para baixar.",

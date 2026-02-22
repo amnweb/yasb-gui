@@ -55,7 +55,7 @@ class AssetUpdater:
             return None, 999
 
     def _save_update_metadata(self):
-        """Save current timestamp as last update time."""
+        """Save current timestamp and app version as last update info."""
         try:
             if self._metadata_path.exists():
                 try:
@@ -67,6 +67,7 @@ class AssetUpdater:
                 data = {}
 
             data["last_database_updated"] = datetime.datetime.now().isoformat()
+            data["last_database_app_version"] = APP_VERSION
 
             data.pop("last_updated", None)
             data.pop("version", None)
@@ -75,6 +76,20 @@ class AssetUpdater:
                 json.dump(data, f, indent=2)
         except Exception as e:
             error(f"Failed to save metadata: {e}")
+
+    def has_version_changed(self) -> bool:
+        """Check if the app version changed since last schema update."""
+        if not self._metadata_path.exists():
+            return False
+        try:
+            with open(self._metadata_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                last_version = data.get("last_database_app_version")
+                if last_version and last_version != APP_VERSION:
+                    return True
+        except Exception:
+            pass
+        return False
 
     def is_registry_present(self) -> bool:
         """Check if registry file exists and looks valid."""

@@ -230,6 +230,8 @@
 	"schema_download_failed_message": "Widget-Schemas konnten nicht heruntergeladen werden. Die App funktioniert möglicherweise nicht korrekt ohne die Widget-Datenbank.",
 	"schema_outdated_title": "Widget-Datenbank veraltet",
 	"schema_outdated_message": "Die Widget-Datenbank ist {days} Tage alt. Möchten Sie sie jetzt aktualisieren?",
+	"schema_version_updated_title": "App aktualisiert",
+	"schema_version_updated_message": "Die App wurde auf eine neue Version aktualisiert. Die Widget-Datenbank muss neu erstellt werden, um die Kompatibilität sicherzustellen.",
 	"settings_update_db": "Datenbank aktualisieren",
 	"settings_update_db_desc": "Letztes Update: {date} · {status}",
 	"settings_update_db_none": "Keine Update-Historie gefunden. Klicken zum Herunterladen.",

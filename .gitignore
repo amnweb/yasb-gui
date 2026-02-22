@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
+YASB_GUI.egg-info/
 .venv/
 ENV/
 env/

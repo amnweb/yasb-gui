@@ -15,39 +15,39 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "ruamel.yaml",
-    "winrt.runtime",
-    "winrt.windows.ui",
-    "winrt.windows.system",
-    "winrt.windows.foundation",
-    "winrt.windows.foundation.collections",
-    "winrt.windows.applicationmodel",
-    "winrt.windows.applicationmodel.datatransfer",
-    "winrt.windows.ui.xaml.interop",
-    "webview2.microsoft.web.webview2.core",
-    "winui3.microsoft.ui.composition.systembackdrops",
-    "winui3.microsoft.ui.xaml",
-    "winui3.microsoft.ui.xaml.controls",
-    "winui3.microsoft.ui.xaml.controls.primitives",
-    "winui3.microsoft.ui.xaml.markup",
-    "winui3.microsoft.ui.xaml.media",
-    "winui3.microsoft.ui.xaml.input",
-    "winui3.microsoft.ui.windowing",
-    "winui3.microsoft.ui.dispatching",
-    "winui3.microsoft.ui.xaml.media.imaging",
-    "winui3.microsoft.ui.xaml.media.animation",
-    "winui3.microsoft.ui.xaml.xamltypeinfo",
-    "winui3.microsoft.ui.xaml.automation.peers",
-    "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap",
+    "ruamel.yaml==0.19.1",
+    "winrt.runtime==3.2.1",
+    "winrt.windows.ui==3.2.1",
+    "winrt.windows.system==3.2.1",
+    "winrt.windows.foundation==3.2.1",
+    "winrt.windows.foundation.collections==3.2.1",
+    "winrt.windows.applicationmodel==3.2.1",
+    "winrt.windows.applicationmodel.datatransfer==3.2.1",
+    "winrt.windows.ui.xaml.interop==3.2.1",
+    "webview2.microsoft.web.webview2.core==3.2.1",
+    "winui3.microsoft.ui.composition.systembackdrops==3.2.1",
+    "winui3.microsoft.ui.xaml==3.2.1",
+    "winui3.microsoft.ui.xaml.controls==3.2.1",
+    "winui3.microsoft.ui.xaml.controls.primitives==3.2.1",
+    "winui3.microsoft.ui.xaml.markup==3.2.1",
+    "winui3.microsoft.ui.xaml.media==3.2.1",
+    "winui3.microsoft.ui.xaml.input==3.2.1",
+    "winui3.microsoft.ui.windowing==3.2.1",
+    "winui3.microsoft.ui.dispatching==3.2.1",
+    "winui3.microsoft.ui.xaml.media.imaging==3.2.1",
+    "winui3.microsoft.ui.xaml.media.animation==3.2.1",
+    "winui3.microsoft.ui.xaml.xamltypeinfo==3.2.1",
+    "winui3.microsoft.ui.xaml.automation.peers==3.2.1",
+    "winui3.microsoft.windows.applicationmodel.dynamicdependency.bootstrap==3.2.1",
 ]
 
 [project.optional-dependencies]
 build = [
-    "cx-freeze>=8.5.3",
+    "cx-freeze==8.6.0",
 ]
 dev = [
-    "ruff",
-    "pytest",
+    "ruff>=0.15.0",
+    "pytest>=9.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

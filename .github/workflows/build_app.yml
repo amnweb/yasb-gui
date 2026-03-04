@@ -262,12 +262,11 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          $currentTag = "v${{ steps.version.outputs.VERSION }}"
-          $prevTag = (git tag --sort=-version:refname | Where-Object { $_ -ne $currentTag } | Select-Object -First 1)
-          if ([string]::IsNullOrWhiteSpace($prevTag)) {
-            $commits = git log -n 20 --pretty=format:"* %s %h" --no-merges
+          $prevTag = git tag -l --sort=-version:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
+          if (-not [string]::IsNullOrWhiteSpace($prevTag)) {
+            $commits = git log "$prevTag..HEAD" --pretty=format:"* %s %h" --no-merges
           } else {
-            $commits = git log "$prevTag..$currentTag" --pretty=format:"* %s %h" --no-merges
+            $commits = git log -n 20 --pretty=format:"* %s %h" --no-merges
           }
           if ([string]::IsNullOrWhiteSpace($commits)) { $commits = "* No significant changes" }
           $commits | Out-File -FilePath CHANGELOG.md -Encoding utf8

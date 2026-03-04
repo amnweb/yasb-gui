@@ -7,9 +7,19 @@ jobs:
   publish:
     runs-on: windows-latest
     steps:
+      - name: Get latest release tag
+        id: latest
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const release = await github.rest.repos.getLatestRelease({ owner: context.repo.owner, repo: context.repo.repo });
+            return release.data.tag_name;
+          result-encoding: string
+
       - uses: vedantmgoyal9/winget-releaser@main
         with:
           identifier: AmN.YASBGUI
           installers-regex: '\.msixbundle$'
           max-versions-to-keep: 12
+          release-tag: ${{ steps.latest.outputs.result }}
           token: ${{ secrets.WINGET_TOKEN }}

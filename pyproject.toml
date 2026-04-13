@@ -47,7 +47,7 @@ build = [
 ]
 dev = [
     "ruff>=0.15.0",
-    "pytest>=9.0.0",
+    "pytest>=9.0.3",
 ]
 
 [tool.hatch.build.targets.wheel]

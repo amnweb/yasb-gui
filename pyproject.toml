@@ -46,7 +46,7 @@ build = [
     "cx-freeze==8.6.2",
 ]
 dev = [
-    "ruff>=0.15.0",
+    "ruff>=0.15.10",
     "pytest>=9.0.0",
 ]
 
